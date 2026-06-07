@@ -1,0 +1,353 @@
+import numpy as np
+import pandas as pd
+
+def add_engineered_features(df):
+    """
+    Safely engineers features for the Day-Ahead Market SMP Prediction.
+    Strictly simulates the 08:00 Day D operational blindspot:
+    To predict Day D+1 (target day), the last available data is 07:30 Day D.
+    """
+    df = df.copy()
+    
+    # Time based features (perfectly known in advance)
+    hour_frac = df.index.hour + df.index.minute / 60.0
+    df['sin_hour']  = np.sin(2 * np.pi * hour_frac / 24)
+    df['cos_hour']  = np.cos(2 * np.pi * hour_frac / 24)
+    df['sin_dow']   = np.sin(2 * np.pi * df.index.dayofweek / 7)
+    df['cos_dow']   = np.cos(2 * np.pi * df.index.dayofweek / 7)
+    df['sin_month'] = np.sin(2 * np.pi * df.index.month / 12)
+    df['cos_month'] = np.cos(2 * np.pi * df.index.month / 12)
+    
+    # 0 is 00:00, 15 is 07:30, 47 is 23:30
+    cycle_id = df.index.hour * 2 + (df.index.minute == 30).astype(int)
+    
+    # =========================================================
+    # 1. SAME-CYCLE LAGS (Strictly 08:00 Blindspot Safe)
+    # =========================================================
+    # For Day D+1 cycle `c`:
+    # If c <= 15 (00:00 to 07:30): Day D cycle `c` IS available. We can use shift(48).
+    # If c > 15 (08:00 to 23:30): Day D cycle `c` IS NOT available. We must use Day D-1 cycle `c`, which is shift(96).
+    
+    lagged_features = {}
+
+    def safe_same_cycle_lag(col_name, new_col_prefix):
+        if col_name not in df.columns: return
+        lagged_features[f'{new_col_prefix}_1d'] = np.where(
+            cycle_id <= 15,
+            df[col_name].shift(48),
+            df[col_name].shift(96),
+        )
+        lagged_features[f'{new_col_prefix}_2d'] = df[col_name].shift(96)
+        lagged_features[f'{new_col_prefix}_3d'] = df[col_name].shift(144)
+        lagged_features[f'{new_col_prefix}_7d'] = df[col_name].shift(336)
+        lagged_features[f'{new_col_prefix}_14d'] = df[col_name].shift(672)
+        lagged_features[f'{new_col_prefix}_28d'] = df[col_name].shift(1344)
+        
+    safe_same_cycle_lag('smp_system_price', 'smp_same_cycle')
+    safe_same_cycle_lag('load_total_mw', 'load_same_cycle')
+    safe_same_cycle_lag('load_north_mw', 'load_north_same_cycle')
+    safe_same_cycle_lag('load_central_mw', 'load_central_same_cycle')
+    safe_same_cycle_lag('load_south_mw', 'load_south_same_cycle')
+    safe_same_cycle_lag('smp_north_price', 'smp_north_same_cycle')
+    safe_same_cycle_lag('smp_south_price', 'smp_south_same_cycle')
+    safe_same_cycle_lag('hydro_inflow_m3s', 'hydro_inflow_same_cycle')
+    safe_same_cycle_lag('hydro_total_discharge_m3s', 'hydro_discharge_same_cycle')
+    safe_same_cycle_lag('hydro_water_level_m', 'hydro_level_same_cycle')
+
+    weather_prefixes = (
+        'temperature_', 'humidity_', 'cloud_cover_', 'wind_speed_',
+        'shortwave_radiation_', 'direct_radiation_', 'diffuse_radiation_',
+    )
+    raw_columns = list(df.columns)
+    for col in raw_columns:
+        if col.startswith(weather_prefixes):
+            safe_same_cycle_lag(col, f'{col}_same_cycle')
+        elif col.startswith('disp_'):
+            safe_same_cycle_lag(col, f'{col}_same_cycle')
+    df = pd.concat(
+        [df, pd.DataFrame(lagged_features, index=df.index)],
+        axis=1,
+    )
+
+    # =========================================================
+    # 2. MORNING AGGREGATES (Day D 00:00 to 07:30)
+    # =========================================================
+    # This block is fully available at 08:00 Day D.
+    df['date_str'] = df.index.date.astype(str)
+    
+    morning_mask = (cycle_id <= 15)
+    morning = df[morning_mask]
+    morning_stats = morning.groupby('date_str').agg(
+        morning_smp_mean=('smp_system_price', 'mean'),
+        morning_smp_median=('smp_system_price', 'median'),
+        morning_smp_std=('smp_system_price', 'std'),
+        morning_smp_max=('smp_system_price', 'max'),
+        morning_smp_min=('smp_system_price', 'min'),
+        morning_smp_first=('smp_system_price', 'first'),
+        morning_smp_last=('smp_system_price', 'last'),
+        morning_gate_prob=('smp_system_price', lambda x: (x <= 500.0).mean()),
+        morning_load_mean=('load_total_mw', 'mean'),
+        morning_load_std=('load_total_mw', 'std'),
+        morning_load_max=('load_total_mw', 'max'),
+        morning_load_min=('load_total_mw', 'min'),
+        morning_load_first=('load_total_mw', 'first'),
+        morning_load_last=('load_total_mw', 'last'),
+    )
+    morning_stats['morning_smp_range'] = (
+        morning_stats['morning_smp_max'] - morning_stats['morning_smp_min']
+    )
+    morning_stats['morning_smp_trend'] = (
+        morning_stats['morning_smp_last'] - morning_stats['morning_smp_first']
+    )
+    morning_stats['morning_load_range'] = (
+        morning_stats['morning_load_max'] - morning_stats['morning_load_min']
+    )
+    morning_stats['morning_load_trend'] = (
+        morning_stats['morning_load_last'] - morning_stats['morning_load_first']
+    )
+    if {'smp_north_price', 'smp_south_price'}.issubset(morning.columns):
+        regional = morning.groupby('date_str').agg(
+            morning_smp_north_mean=('smp_north_price', 'mean'),
+            morning_smp_south_mean=('smp_south_price', 'mean'),
+            morning_smp_north_last=('smp_north_price', 'last'),
+            morning_smp_south_last=('smp_south_price', 'last'),
+        )
+        regional['morning_spread_ns_mean'] = (
+            regional['morning_smp_north_mean'] - regional['morning_smp_south_mean']
+        )
+        regional['morning_spread_ns_last'] = (
+            regional['morning_smp_north_last'] - regional['morning_smp_south_last']
+        )
+        morning_stats = morning_stats.join(regional)
+
+    # Day D+1 uses the complete morning snapshot from Day D. Changes are
+    # measured against Day D-1 and broadcast to all 48 target cycles.
+    origin_morning = morning_stats.shift(1)
+    previous_morning = morning_stats.shift(2)
+    origin_morning['morning_smp_level_change'] = (
+        origin_morning['morning_smp_mean'] - previous_morning['morning_smp_mean']
+    )
+    origin_morning['morning_load_level_change'] = (
+        origin_morning['morning_load_mean'] - previous_morning['morning_load_mean']
+    )
+    df = df.join(origin_morning, on='date_str')
+
+    # =========================================================
+    # 3. FULL DAY AGGREGATES (Day D-1)
+    # =========================================================
+    # Day D-1 is the most recent FULL day available.
+    daily_stats = df.groupby('date_str').agg(
+        prev_full_smp_mean=('smp_system_price', 'mean'),
+        prev_full_smp_max=('smp_system_price', 'max'),
+        prev_full_smp_min=('smp_system_price', 'min'),
+        prev_full_gate_prob=('smp_system_price', lambda x: (x <= 500).mean())
+    )
+    # Shift by 2 days because Day D+1 uses Day D-1's full daily stats
+    daily_stats = daily_stats.shift(2)
+    df = df.join(daily_stats, on='date_str')
+    
+    df = df.drop(columns=['date_str'])
+
+    # =========================================================
+    # 4. WEATHER & PROXIES (Available for Day D+1)
+    # =========================================================
+    if 'shortwave_radiation_hcmc' in df.columns and 'disp_solar_installed_mw' in df.columns:
+        df['solar_gen_proxy'] = (df['shortwave_radiation_hcmc'] / 1000.0) * df['disp_solar_installed_mw'] * 0.75
+    else:
+        df['solar_gen_proxy'] = 0
+
+    if 'wind_speed_hcmc' in df.columns and 'disp_wind_installed_mw' in df.columns:
+        df['wind_gen_proxy'] = (df['wind_speed_hcmc'] / 10.0) * df['disp_wind_installed_mw'] * 0.3
+    else:
+        df['wind_gen_proxy'] = 0
+
+    load_forecast_lags = [
+        col for col in (
+            'load_same_cycle_1d',
+            'load_same_cycle_2d',
+            'load_same_cycle_7d',
+            'load_same_cycle_14d',
+        )
+        if col in df.columns
+    ]
+    if load_forecast_lags:
+        df['load_forecast_proxy'] = df[load_forecast_lags].median(axis=1)
+        df['load_forecast_trend'] = df['load_same_cycle_1d'] - df['load_same_cycle_7d']
+
+    if 'load_forecast_proxy' in df.columns and 'solar_gen_proxy' in df.columns:
+        df['residual_load_proxy'] = df['load_forecast_proxy'] - df['solar_gen_proxy'] - df['wind_gen_proxy']
+
+    if 'disp_total_installed_mw' in df.columns and 'residual_load_proxy' in df.columns:
+        hydro_cap = df['disp_hydro_installed_mw'].fillna(0) if 'disp_hydro_installed_mw' in df.columns else 0
+        solar_cap = df['disp_solar_installed_mw'].fillna(0) if 'disp_solar_installed_mw' in df.columns else 0
+        wind_cap = df['disp_wind_installed_mw'].fillna(0) if 'disp_wind_installed_mw' in df.columns else 0
+        thermal_cap = df['disp_total_installed_mw'] - hydro_cap - solar_cap - wind_cap
+        df['thermal_margin_proxy'] = thermal_cap - df['residual_load_proxy']
+
+    if 'shortwave_radiation_hcmc' in df.columns and 'load_forecast_proxy' in df.columns:
+        df['load_to_rad_ratio'] = df['load_forecast_proxy'] / (df['shortwave_radiation_hcmc'] + 1.0)
+        
+    if 'wind_speed_hcmc' in df.columns and 'load_forecast_proxy' in df.columns:
+        df['load_to_wind_ratio'] = df['load_forecast_proxy'] / (df['wind_speed_hcmc'] + 1.0)
+
+    df = df.drop(columns=['smp_north_price', 'smp_central_price', 'smp_south_price'], errors='ignore')
+
+    # =========================================================
+    # 5. ROLLING VOLATILITY & MOMENTUM (Blindspot Safe)
+    # =========================================================
+    # All use shift(48) minimum to ensure we only use data available before 08:00 Day D
+    if 'smp_same_cycle_1d' in df.columns:
+        # Price momentum: how much did the price change vs 2 days ago?
+        df['smp_momentum_1d_2d'] = df['smp_same_cycle_1d'] - df['smp_same_cycle_2d']
+        weekly_price_lags = [
+            col for col in (
+                'smp_same_cycle_7d',
+                'smp_same_cycle_14d',
+                'smp_same_cycle_28d',
+            )
+            if col in df.columns
+        ]
+        if weekly_price_lags:
+            df['smp_weekly_median'] = df[weekly_price_lags].median(axis=1)
+            df['smp_level_vs_weekly'] = (
+                df['smp_same_cycle_2d'] - df['smp_weekly_median']
+            )
+
+    if {'load_same_cycle_1d', 'load_same_cycle_2d'}.issubset(df.columns):
+        df['load_momentum_1d_2d'] = (
+            df['load_same_cycle_1d'] - df['load_same_cycle_2d']
+        )
+        weekly_load_lags = [
+            col for col in (
+                'load_same_cycle_7d',
+                'load_same_cycle_14d',
+                'load_same_cycle_28d',
+            )
+            if col in df.columns
+        ]
+        if weekly_load_lags:
+            df['load_weekly_median'] = df[weekly_load_lags].median(axis=1)
+            df['load_level_vs_weekly'] = (
+                df['load_same_cycle_2d'] - df['load_weekly_median']
+            )
+    # Price spread North-South using lagged values that are already blindspot-safe.
+    if 'smp_north_same_cycle_1d' in df.columns and 'smp_south_same_cycle_1d' in df.columns:
+        df['smp_spread_ns_1d'] = df['smp_north_same_cycle_1d'] - df['smp_south_same_cycle_1d']
+
+    # Snapshot statistics are evaluated at 07:30 on Day D and mapped to Day D+1.
+    # They are constant across the 48 target cycles and cannot drift into unavailable
+    # observations later on Day D.
+    if 'smp_system_price' in df.columns:
+        rolling = pd.DataFrame(index=df.index)
+        rolling['std_1d'] = df['smp_system_price'].rolling(48, min_periods=24).std()
+        rolling['std_7d'] = df['smp_system_price'].rolling(336, min_periods=168).std()
+        rolling['mean_7d'] = df['smp_system_price'].rolling(336, min_periods=168).mean()
+        rolling['median_28d'] = df['smp_system_price'].rolling(
+            1344, min_periods=336
+        ).median()
+        rolling['q90_28d'] = df['smp_system_price'].rolling(
+            1344, min_periods=336
+        ).quantile(0.90)
+        rolling['q98_28d'] = df['smp_system_price'].rolling(
+            1344, min_periods=336
+        ).quantile(0.98)
+        gate = (df['smp_system_price'] <= 500.0).astype(float)
+        rolling['gate_rate_7d'] = gate.rolling(336, min_periods=168).mean()
+        rolling['gate_rate_30d'] = gate.rolling(1440, min_periods=720).mean()
+        cutoff = rolling[cycle_id == 15].copy()
+        cutoff.index = cutoff.index.normalize() + pd.Timedelta(days=1)
+        target_dates = df.index.normalize()
+        df['smp_rolling_std_1d'] = target_dates.map(cutoff['std_1d'].to_dict())
+        df['smp_rolling_std_7d'] = target_dates.map(cutoff['std_7d'].to_dict())
+        df['smp_rolling_mean_7d'] = target_dates.map(cutoff['mean_7d'].to_dict())
+        df['smp_rolling_median_28d'] = target_dates.map(
+            cutoff['median_28d'].to_dict()
+        )
+        df['smp_rolling_q90_28d'] = target_dates.map(
+            cutoff['q90_28d'].to_dict()
+        )
+        df['smp_rolling_q98_28d'] = target_dates.map(
+            cutoff['q98_28d'].to_dict()
+        )
+        df['smp_gate_rate_7d'] = target_dates.map(cutoff['gate_rate_7d'].to_dict())
+        df['smp_gate_rate_30d'] = target_dates.map(cutoff['gate_rate_30d'].to_dict())
+        df['smp_dev_from_7d_mean'] = df['smp_same_cycle_1d'] - df['smp_rolling_mean_7d']
+
+    calendar_weekend = pd.Series((df.index.dayofweek >= 5).astype(int), index=df.index)
+    if 'is_weekend' in df.columns:
+        df['is_weekend'] = np.maximum(df['is_weekend'].fillna(0).astype(int), calendar_weekend)
+    else:
+        df['is_weekend'] = calendar_weekend
+    
+    # 1. Regime Indicator (Post-Covid)
+    df['is_post_covid'] = (df.index.year >= 2023).astype(int)
+    
+    # 2. Vietnam Public Holidays (Hardcoded for 2021-2026)
+    solar_holidays = ['01-01', '04-30', '05-01', '09-02']
+    fixed_holidays = pd.Series(df.index.strftime('%m-%d').isin(solar_holidays).astype(int), index=df.index)
+    if 'is_holiday' in df.columns:
+        df['is_holiday'] = np.maximum(df['is_holiday'].fillna(0).astype(int), fixed_holidays)
+    else:
+        df['is_holiday'] = fixed_holidays
+    
+    # Lunar holidays (Tet & Hung King)
+    lunar_holiday_ranges = [
+        ('2021-02-10', '2021-02-16'), ('2021-04-21', '2021-04-21'),
+        ('2022-01-31', '2022-02-04'), ('2022-04-10', '2022-04-10'),
+        ('2023-01-20', '2023-01-26'), ('2023-04-29', '2023-04-29'),
+        ('2024-02-08', '2024-02-14'), ('2024-04-18', '2024-04-18'),
+        ('2025-01-27', '2025-02-02'), ('2025-04-07', '2025-04-07'),
+        ('2026-02-15', '2026-02-21'), ('2026-04-26', '2026-04-26')
+    ]
+    for start, end in lunar_holiday_ranges:
+        mask = (df.index >= start) & (df.index <= f"{end} 23:59:59")
+        df.loc[mask, 'is_holiday'] = 1
+
+    # Holiday-Load Interaction
+    if 'load_same_cycle_1d' in df.columns:
+        df['holiday_load_impact'] = df['is_holiday'] * df['load_same_cycle_1d']
+
+    # Heatwave & Coldwave Stress
+    if 'temperature_2m_hn' in df.columns:
+        df['heat_stress_hn'] = (df['temperature_2m_hn'] - 35).clip(lower=0)
+        df['cold_stress_hn'] = (15 - df['temperature_2m_hn']).clip(lower=0)
+    elif 'temperature_hanoi' in df.columns:
+        df['heat_stress_hn'] = (df['temperature_hanoi'] - 35).clip(lower=0)
+        df['cold_stress_hn'] = (15 - df['temperature_hanoi']).clip(lower=0)
+    if 'temperature_2m_hcmc' in df.columns:
+        df['heat_stress_hcmc'] = (df['temperature_2m_hcmc'] - 35).clip(lower=0)
+    elif 'temperature_hcmc' in df.columns:
+        df['heat_stress_hcmc'] = (df['temperature_hcmc'] - 35).clip(lower=0)
+
+
+    # =========================================================
+    # 6. FUEL PRICE FEATURES (Blindspot Safe)
+    # =========================================================
+    # Coal/Gas/Oil prices are daily values published after market close.
+    # When forecasting D+1, we use prices up to D-1 (shift by 2 days = 96 cycles).
+    df = df.copy()
+    for fuel_col in ['coal_proxy_price', 'brent_price', 'gas_proxy_price', 'usd_vnd']:
+        if fuel_col in df.columns:
+            df[f'{fuel_col}_lag'] = df[fuel_col].shift(96)  # D-1 value (safe)
+            df[f'{fuel_col}_rolling_7d'] = df[fuel_col].shift(96).rolling(336, min_periods=168).mean()
+            df[f'{fuel_col}_momentum'] = df[fuel_col].shift(96) - df[fuel_col].shift(432)  # D-1 vs D-8
+
+    # =========================================================
+    # 7. HYDRO PROXY via PRECIPITATION (Blindspot Safe)
+    # =========================================================
+    # Precipitation is available from weather forecast (Open-Meteo).
+    # Rolling 30-day rainfall proxies for reservoir levels / dry-wet season.
+    precip_cols = [c for c in df.columns if 'precipitation' in c.lower()]
+    if precip_cols:
+        df['precip_total'] = df[precip_cols].sum(axis=1)
+        df['precip_rolling_7d'] = df['precip_total'].shift(48).rolling(336, min_periods=168).mean()
+        df['precip_rolling_30d'] = df['precip_total'].shift(48).rolling(1440, min_periods=720).mean()
+        # Hydro stress: when rain is low AND residual load is high → SMP likely to spike
+        if 'residual_load_proxy' in df.columns:
+            df['hydro_stress_proxy'] = df['residual_load_proxy'] / (df['precip_rolling_30d'] + 1)
+
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
+    df[numeric_cols] = df[numeric_cols].replace([np.inf, -np.inf], np.nan)
+        
+    print(f"Feature engineering complete. Shape: {df.shape}, NaN count: {df.isna().sum().sum()}")
+    return df
