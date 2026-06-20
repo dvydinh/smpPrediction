@@ -59,7 +59,7 @@ def load_and_preprocess_data(DATA_ROOT):
         df[col] = hydro[col]
     del hydro_chunks, hydro; gc.collect()
 
-    disp = pd.read_csv(MARKET_DIR / 'dispatch_capacity_nsmo.csv')
+    disp = pd.read_csv(MARKET_DIR / 'dispatch_capacity_nsmo.csv', encoding='utf-8')
     disp['date'] = pd.to_datetime(disp['date'])
     patterns = {'total': 'quốc', 'hydro': 'Thủy', 'solar': 'trời trang', 'wind': 'gió'}
     disp_frames = []
