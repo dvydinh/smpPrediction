@@ -22,8 +22,8 @@ class StackingEnsemble:
             "lgb": lgb.LGBMRegressor(
                 objective="mae",
                 learning_rate=0.01,
-                num_leaves=255,
-                n_estimators=3000,
+                num_leaves=127,
+                n_estimators=1500,
                 colsample_bytree=0.8,
                 min_child_samples=20,
                 random_state=42,
@@ -32,7 +32,7 @@ class StackingEnsemble:
                 objective="reg:absoluteerror",
                 learning_rate=0.01,
                 max_depth=8,
-                n_estimators=3000,
+                n_estimators=1500,
                 colsample_bytree=0.7,
                 random_state=42,
                 tree_method="hist",
@@ -40,7 +40,7 @@ class StackingEnsemble:
             "cb": CatBoostRegressor(
                 loss_function="MAE",
                 learning_rate=0.02,
-                iterations=3000,
+                iterations=1500,
                 depth=8,
                 random_seed=42,
                 verbose=False,
