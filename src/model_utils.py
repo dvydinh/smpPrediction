@@ -8,6 +8,7 @@ import xgboost as xgb
 from catboost import CatBoostRegressor
 from sklearn.linear_model import RidgeCV
 from sklearn.model_selection import TimeSeriesSplit
+from sklearn.neural_network import MLPRegressor
 
 from src.daily_models import CINGLearForecaster, SimilarDayForecaster
 from src.regime_models import RegimeForecaster
