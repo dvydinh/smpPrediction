@@ -1,3 +1,4 @@
+# FEATURE_PRUNING = True
 import os
 import pickle
 
