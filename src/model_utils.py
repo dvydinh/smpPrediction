@@ -1,4 +1,3 @@
-# RESIDUAL_CORRECTION = True
 import os
 import pickle
 
