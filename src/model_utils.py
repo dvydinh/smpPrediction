@@ -66,7 +66,7 @@ class StackingEnsemble:
             "xgb": xgb.XGBRegressor(
                 objective="reg:absoluteerror",
                 learning_rate=0.005,
-                max_depth=10,
+                max_depth=7,
                 n_estimators=3000,
                 colsample_bytree=0.7,
                 subsample=0.8,
@@ -80,7 +80,7 @@ class StackingEnsemble:
                 loss_function="MAE",
                 learning_rate=0.01,
                 iterations=3000,
-                depth=10,
+                depth=7,
                 l2_leaf_reg=5,
                 random_seed=42,
                 verbose=False,
