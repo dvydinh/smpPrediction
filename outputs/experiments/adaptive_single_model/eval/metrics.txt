@@ -1,0 +1,14 @@
+RMSE (all): 402.63
+MAE (all): 248.05
+WMAPE (all): 19.56%
+MAE (clean): 152.79
+RMSE (clean): 211.86
+MAPE (clean): 11.79%
+WMAPE (clean): 10.78%
+Valid samples: 7296 / 8160
+Target met: False
+Baseline MAE (clean): 218.40
+Baseline WMAPE (clean): 15.41%
+Collapse MAE: 1052.46
+Collapse precision: 1.0000
+Collapse recall: 0.0023
