@@ -72,6 +72,7 @@ def build_design_matrix(save=True):
     df = lagged.add_smp_lags(df)
     df = lagged.add_rolling_stats(df)
     df = lagged.add_derived_features(df)
+    df = lagged.add_physics_informed_features(df)
 
     if "hydro_total_discharge_m3s" in df.columns:
         hydro_shifted = df["hydro_total_discharge_m3s"].shift(cfg.LAG_SAFETY_SHIFT)
