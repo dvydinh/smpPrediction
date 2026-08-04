@@ -1,0 +1,483 @@
+{
+  "feature_names": [
+    "load_total_mw",
+    "load_north_mw",
+    "load_central_mw",
+    "load_south_mw",
+    "hydro_inflow_m3s",
+    "hydro_total_discharge_m3s",
+    "hydro_plant_discharge_m3s",
+    "hydro_spill_discharge_m3s",
+    "hydro_water_level_m",
+    "disp_total_installed_mw",
+    "disp_total_midday_mw",
+    "disp_total_evening_mw",
+    "disp_hydro_installed_mw",
+    "disp_hydro_midday_mw",
+    "disp_hydro_evening_mw",
+    "disp_solar_installed_mw",
+    "disp_solar_midday_mw",
+    "disp_solar_evening_mw",
+    "disp_wind_installed_mw",
+    "disp_wind_midday_mw",
+    "disp_wind_evening_mw",
+    "temperature_hanoi",
+    "humidity_hanoi",
+    "cloud_cover_hanoi",
+    "wind_speed_hanoi",
+    "shortwave_radiation_hanoi",
+    "direct_radiation_hanoi",
+    "diffuse_radiation_hanoi",
+    "temperature_danang",
+    "humidity_danang",
+    "cloud_cover_danang",
+    "wind_speed_danang",
+    "shortwave_radiation_danang",
+    "direct_radiation_danang",
+    "diffuse_radiation_danang",
+    "temperature_hcmc",
+    "humidity_hcmc",
+    "cloud_cover_hcmc",
+    "wind_speed_hcmc",
+    "shortwave_radiation_hcmc",
+    "direct_radiation_hcmc",
+    "diffuse_radiation_hcmc",
+    "coal_proxy_price",
+    "brent_price",
+    "gas_proxy_price",
+    "usd_vnd",
+    "dxy_index",
+    "is_weekend",
+    "is_workday",
+    "is_holiday",
+    "is_tet",
+    "is_pre_holiday",
+    "is_post_holiday",
+    "season",
+    "sin_hour",
+    "cos_hour",
+    "sin_dow",
+    "cos_dow",
+    "sin_month",
+    "cos_month",
+    "smp_lag_48",
+    "load_lag_48",
+    "smp_lag_49",
+    "load_lag_49",
+    "smp_lag_50",
+    "load_lag_50",
+    "smp_lag_96",
+    "load_lag_96",
+    "smp_lag_336",
+    "load_lag_336",
+    "smp_north_lag_48",
+    "smp_south_lag_48",
+    "smp_north_lag_336",
+    "smp_south_lag_336",
+    "smp_rolling_mean_24h",
+    "smp_rolling_std_24h",
+    "load_rolling_mean_24h",
+    "load_rolling_std_24h",
+    "smp_rolling_mean_72h",
+    "smp_rolling_std_72h",
+    "load_rolling_mean_72h",
+    "load_rolling_std_72h",
+    "price_spread_ns_lag48",
+    "load_ramp_lag48",
+    "smp_yesterday_mean",
+    "smp_yesterday_max",
+    "smp_yesterday_min",
+    "smp_yesterday_zero_ratio",
+    "hydro_discharge_rolling_24h",
+    "solar_gen_proxy",
+    "wind_gen_proxy",
+    "residual_load_proxy",
+    "thermal_margin_proxy",
+    "hydro_depletion_index",
+    "margin_temp_interaction",
+    "is_spike",
+    "is_zero",
+    "spike_prob_24h",
+    "spike_prob_72h",
+    "zero_prob_24h",
+    "zero_prob_72h"
+  ],
+  "params": {
+    "objective": "mae",
+    "metric": "mae",
+    "boosting_type": "gbdt",
+    "num_leaves": 127,
+    "learning_rate": 0.01,
+    "feature_fraction": 0.5,
+    "bagging_fraction": 0.8,
+    "bagging_freq": 5,
+    "min_child_samples": 20,
+    "verbose": -1,
+    "n_jobs": -1,
+    "seed": 42
+  },
+  "num_boost_round": 3000,
+  "test_rmse": 406.53011499486286,
+  "test_mae": 224.89422131178907,
+  "naive_rmse": 682.7242295919698,
+  "naive_mae": 435.72962593267937,
+  "cv_results": [
+    {
+      "fold": "Fold 1",
+      "rmse": 668.0677475861737,
+      "mae": 449.26846540154116
+    },
+    {
+      "fold": "Fold 2",
+      "rmse": 546.893466549199,
+      "mae": 352.8501397120346
+    },
+    {
+      "fold": "Final",
+      "rmse": 406.53011499486286,
+      "mae": 224.89422131178907
+    }
+  ],
+  "diagnostics": [
+    {
+      "cycle": 0,
+      "trees": 91,
+      "val_mae": 278.6834873356143
+    },
+    {
+      "cycle": 1,
+      "trees": 63,
+      "val_mae": 305.392366452836
+    },
+    {
+      "cycle": 2,
+      "trees": 168,
+      "val_mae": 309.3373674476404
+    },
+    {
+      "cycle": 3,
+      "trees": 161,
+      "val_mae": 315.1937494896332
+    },
+    {
+      "cycle": 4,
+      "trees": 102,
+      "val_mae": 298.7647366842457
+    },
+    {
+      "cycle": 5,
+      "trees": 44,
+      "val_mae": 300.7897187421854
+    },
+    {
+      "cycle": 6,
+      "trees": 100,
+      "val_mae": 299.53895480922887
+    },
+    {
+      "cycle": 7,
+      "trees": 49,
+      "val_mae": 301.23809789600733
+    },
+    {
+      "cycle": 8,
+      "trees": 64,
+      "val_mae": 320.93793731714203
+    },
+    {
+      "cycle": 9,
+      "trees": 176,
+      "val_mae": 299.4439078798846
+    },
+    {
+      "cycle": 10,
+      "trees": 144,
+      "val_mae": 282.71163896951924
+    },
+    {
+      "cycle": 11,
+      "trees": 130,
+      "val_mae": 278.9658737486109
+    },
+    {
+      "cycle": 12,
+      "trees": 73,
+      "val_mae": 314.56230918670946
+    },
+    {
+      "cycle": 13,
+      "trees": 178,
+      "val_mae": 234.7846738651824
+    },
+    {
+      "cycle": 14,
+      "trees": 63,
+      "val_mae": 222.75712014648977
+    },
+    {
+      "cycle": 15,
+      "trees": 221,
+      "val_mae": 275.946097726069
+    },
+    {
+      "cycle": 16,
+      "trees": 75,
+      "val_mae": 389.0950316042413
+    },
+    {
+      "cycle": 17,
+      "trees": 40,
+      "val_mae": 380.66526927431073
+    },
+    {
+      "cycle": 18,
+      "trees": 19,
+      "val_mae": 370.8281469143924
+    },
+    {
+      "cycle": 19,
+      "trees": 178,
+      "val_mae": 364.08316402375857
+    },
+    {
+      "cycle": 20,
+      "trees": 1,
+      "val_mae": 345.52091625693595
+    },
+    {
+      "cycle": 21,
+      "trees": 1,
+      "val_mae": 353.48335905214157
+    },
+    {
+      "cycle": 22,
+      "trees": 1,
+      "val_mae": 342.66744751385755
+    },
+    {
+      "cycle": 23,
+      "trees": 1,
+      "val_mae": 297.05285219980186
+    },
+    {
+      "cycle": 24,
+      "trees": 58,
+      "val_mae": 376.52589650253924
+    },
+    {
+      "cycle": 25,
+      "trees": 2,
+      "val_mae": 321.8894169485858
+    },
+    {
+      "cycle": 26,
+      "trees": 351,
+      "val_mae": 358.418577730452
+    },
+    {
+      "cycle": 27,
+      "trees": 46,
+      "val_mae": 408.7483188101367
+    },
+    {
+      "cycle": 28,
+      "trees": 58,
+      "val_mae": 396.0430153486494
+    },
+    {
+      "cycle": 29,
+      "trees": 3,
+      "val_mae": 406.4477570204606
+    },
+    {
+      "cycle": 30,
+      "trees": 164,
+      "val_mae": 426.59066728224394
+    },
+    {
+      "cycle": 31,
+      "trees": 246,
+      "val_mae": 479.57479443229016
+    },
+    {
+      "cycle": 32,
+      "trees": 576,
+      "val_mae": 420.93447762382874
+    },
+    {
+      "cycle": 33,
+      "trees": 178,
+      "val_mae": 351.0598724070415
+    },
+    {
+      "cycle": 34,
+      "trees": 60,
+      "val_mae": 332.3897904639346
+    },
+    {
+      "cycle": 35,
+      "trees": 159,
+      "val_mae": 306.00901501110576
+    },
+    {
+      "cycle": 36,
+      "trees": 52,
+      "val_mae": 245.55990557591338
+    },
+    {
+      "cycle": 37,
+      "trees": 32,
+      "val_mae": 352.77421963373865
+    },
+    {
+      "cycle": 38,
+      "trees": 1,
+      "val_mae": 354.771731469257
+    },
+    {
+      "cycle": 39,
+      "trees": 1,
+      "val_mae": 384.70606357293383
+    },
+    {
+      "cycle": 40,
+      "trees": 1,
+      "val_mae": 384.5640704247618
+    },
+    {
+      "cycle": 41,
+      "trees": 1,
+      "val_mae": 335.5957968068934
+    },
+    {
+      "cycle": 42,
+      "trees": 26,
+      "val_mae": 335.9614690244317
+    },
+    {
+      "cycle": 43,
+      "trees": 1,
+      "val_mae": 382.8669056590608
+    },
+    {
+      "cycle": 44,
+      "trees": 1,
+      "val_mae": 348.5078227405297
+    },
+    {
+      "cycle": 45,
+      "trees": 1,
+      "val_mae": 353.84628473790065
+    },
+    {
+      "cycle": 46,
+      "trees": 17,
+      "val_mae": 345.61590080568925
+    },
+    {
+      "cycle": 47,
+      "trees": 1,
+      "val_mae": 333.4234620282822
+    }
+  ],
+  "cycle_rmses": [
+    235.69977168391623,
+    205.60189652192471,
+    211.53542498951697,
+    216.62747414032452,
+    249.31787335036097,
+    321.1257791369667,
+    309.4722333578656,
+    274.7684115547644,
+    235.45804063082167,
+    213.59972849241373,
+    188.7218449743735,
+    148.73576046356467,
+    214.64537725590688,
+    306.69064684507987,
+    548.467384736197,
+    512.647150752511,
+    460.4502720232424,
+    461.3472957250875,
+    473.5562940669427,
+    497.44728855012244,
+    615.5871304985129,
+    563.8751577170009,
+    702.2490475707993,
+    742.4379749517782,
+    683.142754136184,
+    640.5991442149249,
+    583.0683475292744,
+    477.6086839664773,
+    453.3446733507422,
+    468.6505148957854,
+    383.37781385716823,
+    390.76645452395906,
+    392.12076312417736,
+    405.20502600864705,
+    352.8814156131256,
+    508.73570545104513,
+    351.45536982572884,
+    322.0229309654904,
+    338.3885806606078,
+    415.58855928093607,
+    409.01422526778026,
+    136.59709777267545,
+    184.67227424516878,
+    210.01920251800811,
+    244.7161640083012,
+    222.24726857981287,
+    270.32290435821716,
+    272.3024793498388
+  ],
+  "cycle_maes": [
+    157.74020599779288,
+    131.8461452211256,
+    140.16815385702563,
+    145.00778935595312,
+    167.5474203347776,
+    195.3904395575904,
+    197.36275750766293,
+    189.1706607060411,
+    163.69677049954257,
+    151.02238553922012,
+    138.30664953626143,
+    104.48574088966856,
+    140.23173820528078,
+    194.4565591302688,
+    352.1704144674601,
+    305.3417515358067,
+    243.46681140433057,
+    222.02342931238704,
+    246.35273095881047,
+    282.6320682910991,
+    401.9577492478371,
+    381.0440896124363,
+    471.64473193969724,
+    537.9525284223557,
+    464.09242715207984,
+    450.7890055688038,
+    389.57792391235535,
+    287.81012928599023,
+    252.8154484353501,
+    260.0641053970925,
+    214.72271828520707,
+    194.27557222472512,
+    182.53400977040283,
+    184.69269691974227,
+    171.68314450335365,
+    287.890767188234,
+    181.23126252572297,
+    153.56133523002762,
+    167.01842550143414,
+    209.5324238071443,
+    187.80201393876075,
+    62.73575243910608,
+    90.30251143198159,
+    118.74978574678899,
+    147.50952410659792,
+    131.71955393752452,
+    172.15110387292233,
+    170.64126025409706
+  ]
+}
