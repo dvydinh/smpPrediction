@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+
+outputs/models/
+outputs/processed/
+outputs/metrics/
+outputs/figures/eda/
+
+data/raw/
+
+*.parquet
+*.log
+.env
