@@ -1,28 +1,28 @@
 # V2 Architecture: Global Model (Single Model)
 
-Trong thư mục này, kiến trúc 48 Mô hình độc lập (Direct Multi-Step) đã được chuyển đổi thành kiến trúc **1 Mô hình duy nhất (Global Model)**.
+Trong thư mục này, kiến trúc 48 mô hình độc lập (Direct Multi-Step) đã được chuyển đổi thành kiến trúc **1 mô hình duy nhất (Global Model)**.
 
-## Những thay đổi chính về mặt Kiến trúc
-1. **Dữ liệu Dọc (Vertical Data):** Ma trận `Y` (N ngày x 48 chu kỳ) được duỗi dọc thành `(N * 48) x 1`. Tương tự cho tập đặc trưng `X`. Dataset từ ~2000 dòng mở rộng lên ~95.000 dòng.
+## Những thay đổi chính về mặt kiến trúc
+1. **Dữ liệu dọc (Vertical data):** Ma trận `Y` (N ngày x 48 chu kỳ) được duỗi dọc thành `(N * 48) x 1`. Tương tự cho tập đặc trưng `X`. Dataset từ ~2000 dòng mở rộng lên ~95.000 dòng.
 2. **Đặc trưng mới:** Bổ sung `target_cycle_id` (0 đến 47) và các biến thời gian lượng giác (`target_sin_hour`, `target_cos_hour`) để mô hình phân biệt được các chu kỳ trong ngày.
-3. **Mô hình LightGBM Khổng lồ:** Tăng `num_leaves` lên `255` để mô hình có đủ không gian ghi nhớ quy luật của toàn bộ mốc thời gian.
-4. **Reshape Inference:** Sau khi dự báo mảng dọc, mảng kết quả sẽ được `reshape` trở lại thành `(N, 48)` để các khâu đánh giá MAPE, tính toán sai số, và vẽ biểu đồ phân tích tương đồng 100% với phiên bản cũ.
+3. **Mô hình LightGBM khổng lồ:** Tăng `num_leaves` lên `255` để mô hình có đủ không gian ghi nhớ quy luật của toàn bộ mốc thời gian.
+4. **Reshape inference:** Sau khi dự báo mảng dọc, mảng kết quả sẽ được `reshape` trở lại thành `(N, 48)` để các khâu đánh giá MAPE, tính toán sai số, và vẽ biểu đồ phân tích tương đồng 100% với phiên bản cũ.
 
-## Kỷ lục Thống kê Huấn luyện (Ngày 04/08/2026)
+## Kỷ lục thống kê huấn luyện (Ngày 04/08/2026)
 
 Dưới đây là các chỉ số chính xác được trích xuất từ file `metadata.json` sinh ra trong lần chạy mới nhất:
 
-- **Tổng thời gian Huấn luyện:** ~11 giây (Nhanh hơn rất nhiều so với V1 do chỉ train 1 mô hình duy nhất).
-- **Test RMSE:** `6.58` VND (Giảm 99.0% so với Naive Model)
-- **Test MAE:** `1.82` VND (Giảm 99.6% so với Naive Model)
-- **MAPE (Clean - Loại trừ Outliers): 0.12%** (Tuyệt đối kỷ lục, vượt qua cả mức 0.64% của V1).
+- **Tổng thời gian huấn luyện:** ~11 giây (nhanh hơn rất nhiều so với V1 do chỉ train 1 mô hình duy nhất).
+- **Test RMSE:** `6.58` VND (giảm 99.0% so với Naive Model)
+- **Test MAE:** `1.82` VND (giảm 99.6% so với Naive Model)
+- **MAPE (Clean - Loại trừ outliers): 0.12%** (tuyệt đối kỷ lục, vượt qua cả mức 0.64% của V1).
 
-### Walk-Forward Cross Validation (Đánh giá chéo)
+### Walk-Forward cross validation (Đánh giá chéo)
 - **Fold 1:** RMSE = 7.91 | MAE = 3.65
-- **Fold 2:** RMSE = 168.07 | MAE = 93.51 (Giai đoạn biến động thị trường)
+- **Fold 2:** RMSE = 168.07 | MAE = 93.51 (giai đoạn biến động thị trường)
 - **Final (Test):** RMSE = 6.58 | MAE = 1.82
 
-### Top 10 Feature Importance (Đóng góp của các Biến)
+### Top 10 feature importance (Đóng góp của các biến)
 Mô hình đã học rất tốt việc phân biệt thời gian dựa vào biến số mới `target_cycle_id`.
 1. `smp_lag_336` (Gain: ~1514)
 2. `is_spike` (Gain: ~1356)
