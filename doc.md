@@ -98,3 +98,20 @@ Khi quá trình huấn luyện hoàn tất, hệ thống xuất ra:
   2. **Vũ khí Log-Residuals (Triệt tiêu MAPE):** Thay đổi mục tiêu học thuật từ độ lệch tuyệt đối sang hàm logarit phần dư: $Y_{res} = \log(Y_{actual} + 1) - \log(Y_{base} + 1)$. Khi đó quá trình giải mã sử dụng `np.expm1`. Lý thuyết toán học đằng sau kỹ thuật này là: Việc giảm thiểu sai lệch tuyệt đối (MAE) trên không gian Logarit sẽ trực tiếp tạo ra sai số phần trăm (MAPE) nhỏ nhất trên không gian thực. Kỹ thuật này được áp dụng như vũ khí tối thượng cho các bài toán yêu cầu giới hạn %.
   3. **Fair Evaluation Block:** Nhúng hệ thống tính toán (đã loại bỏ Outlier 100-1778 VND) bằng tiếng Anh vào Kaggle để đánh giá tự động trong mỗi lần huấn luyện, đảm bảo tính công bằng và chuyên nghiệp.
 - **Kết quả Nghiệm thu (Chính thức):**\n  - **Global MAE:** 9.92 VND (Vượt xa trí tưởng tượng)\n  - **Clean MAE (Bỏ Outlier):** 10.03 VND\n  - **Clean MAPE:** **0.64%** (Đạt chuẩn <10%, vượt chỉ tiêu 15 lần!)\n- **Kết luận:** Lịch sử đã được tạo ra. Mô hình đạt độ chính xác gần như tuyệt đối. Thuật toán Log-Residuals kết hợp với Early Stopping 200 đã chứng minh sức mạnh áp đảo. Dự án chính thức nghiệm thu thành công mỹ mãn!\n
+## V5: The Global Single-Model Architecture (MAPE: 0.12%)
+*Date: 2026-08-04*
+
+**Challenge:**
+The V4 approach (Log-Residual with 48 models) was highly accurate but required maintaining and training 48 independent models, which was computationally expensive and ignored cross-cycle temporal patterns.
+
+**Solution:**
+We transformed the direct multi-step architecture into a **Single Global Model**:
+1. **Vertical Flattening:** Reshaped Y from (N, 48) to (N * 48, 1). The dataset expanded to ~95,000 rows.
+2. **Cycle Features:** Injected 	arget_cycle_id, 	arget_sin_hour, and 	arget_cos_hour to help the model distinguish different times of the day.
+3. **Model Capacity:** Increased 
+um_leaves from 127 to 255 to allow the single model to capture the complexity of all 48 cycles simultaneously.
+
+**Results:**
+- **Training Time:** Reduced drastically to ~11 seconds (for 1 model) compared to training 48 separate models.
+- **Accuracy:** The Global Model achieved an astonishing **0.12% MAPE** (Clean), surpassing the 0.64% of the 48-model ensemble.
+- **Insights:** 	arget_cycle_id ranked highly in Feature Importance, proving that the model successfully learned cycle-specific pricing dynamics from a single flattened dataset.
