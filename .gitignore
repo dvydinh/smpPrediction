@@ -13,3 +13,5 @@ data/raw/
 *.parquet
 *.log
 .env
+
+doc.md
