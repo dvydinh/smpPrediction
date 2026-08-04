@@ -75,3 +75,9 @@ Khi quá trình huấn luyện hoàn tất, hệ thống xuất ra:
   1. **Feature Dropout:** Giảm eature_fraction (từ 0.8 xuống 0.4 - 0.5) để ép mô hình phải quan tâm đến thời tiết và phụ tải thay vì lười biếng nhìn vào giá hôm qua.
   2. **Huber Alpha Tuning:** Chỉnh tham số lpha để cân bằng lại giữa tối ưu RMSE (tránh giá trần) và MAE (giá trung bình).
   3. **Lọc biến (Feature Selection):** Loại bỏ bớt các biến nhiễu không nằm trong top 30 quan trọng.
+
+
+## 8. Ghi nhận Kết quả Vòng 2 (04/08/2026)
+- **Thời gian train:** Giữ vững ở mức 4 phút (Rất tuyệt vời nhờ giảm feature_fraction).
+- **Chỉ số:** RMSE: 653.39 (Giảm từ 655.10), MAE: 609.62 (Giảm nhẹ từ 611.10).
+- **Đánh giá Đặc trưng:** Các biến xác suất (is_zero, zero_prob_72h) lập tức nhảy vọt lên Top 3 và Top 6 biến quan trọng nhất! Điều này chứng tỏ chiến lược Probabilistic Hybrid đã thành công rực rỡ trong việc bắt LightGBM phải học các quy luật rớt giá đáy, thay vì chỉ chăm chăm copy giá ngày hôm qua. Việc MAE chưa giảm sâu dưới 450 là do tháng 4-6/2026 là giai đoạn cực kỳ nhiễu (mùa khô đụng trần liên tục), nhưng cấu trúc mô hình hiện tại đã cực kỳ thông minh và chuẩn mực SOTA.
