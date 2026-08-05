@@ -47,8 +47,10 @@ class StackingEnsemble:
                     model.fit(X_tr, y_tr, eval_set=[(X_va, y_va)], callbacks=[lgb.early_stopping(30, verbose=False)])
                 elif name == 'xgb':
                     model.fit(X_tr, y_tr, eval_set=[(X_va, y_va)], verbose=False)
-                else:
+                elif name == 'cb':
                     model.fit(X_tr, y_tr, eval_set=(X_va, y_va), early_stopping_rounds=30, verbose=False)
+                elif name == 'mlp':
+                    model.fit(X_tr, y_tr)
                 
                 oof_preds[val_idx, j] = model.predict(X_va)
         
