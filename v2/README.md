@@ -13,7 +13,12 @@ Bạn hãy copy thư mục `models/` này về môi trường Server / Máy tín
 ### Bước 2: Chuẩn bị Dữ liệu (API Thời tiết + Database nội bộ)
 Mô hình sẽ không thể chạy nếu thiếu dữ liệu đầu vào. Bạn cần:
 1. **Dữ liệu Database:** Kéo giá SMP, phụ tải, lượng nước về hồ thủy điện... tính từ **07:30 sáng nay trở về trước**.
-2. **Dữ liệu API Thời tiết:** Gọi API (AccuWeather, OpenWeatherMap...) để lấy **Dự báo thời tiết ngày mai (D+1)** cho 3 thành phố Hà Nội, Đà Nẵng, TP.HCM. Tuyệt đối không dùng thời tiết thực tế của hôm nay.
+2. **Dữ liệu API Thời tiết:** Gọi API để lấy **Dự báo thời tiết ngày mai (D+1)** cho 3 thành phố Hà Nội, Đà Nẵng, TP.HCM. Cần đặc biệt chú ý đến các biến bức xạ (Shortwave, Direct, Diffuse) để dự báo điện mặt trời.
+   
+   👉 **Các nhà cung cấp API Thời tiết khuyên dùng cho ngành Năng lượng:**
+   - **Open-Meteo (Khuyên dùng thử nghiệm):** Hoàn toàn miễn phí, mã nguồn mở, cung cấp đầy đủ các biến bức xạ mặt trời (GHI, DNI, DHI) và tốc độ gió. Rất dễ tích hợp.
+   - **Solcast:** API tiêu chuẩn vàng của ngành năng lượng tái tạo, chuyên trị dự báo bức xạ mặt trời độ phân giải cao. Có gói API cho doanh nghiệp năng lượng.
+   - **Meteomatics / AccuWeather Pro:** API thương mại độ tin cậy cao, thường được các trung tâm điều độ (như A0) sử dụng làm dữ liệu đầu vào.
 
 ### Bước 3: Chạy Code Dự báo (`inference_production.py`)
 Tôi đã viết sẵn bộ khung mã nguồn API Prediction trong file `v2/inference_production.py`. 
