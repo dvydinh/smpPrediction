@@ -1,9 +1,0 @@
-c3af2e2eaef377b175af4a135b6aacae22afa90d	write full detailed results and feature importance from latest run
-321d2972abbf4834d0d2d69152501913e3dd5491	add V2 global model record-breaking results (0.12% MAPE)
-538f01516d7f2f5c1432cdb2ecaa4252f04ffaad	fix models reference in feature importance and residual shapes
-4a031821c508392f9d6d1676c38de645342fda5a	fix plot ValueError by using unique test dates and actual prices
-dc503e23ddbb8e327eb71c6ccad4852b8f70897b	implement single global model architecture
-e155856dc666240937763e3dae12ab6981c366b3	remove temporary helper scripts to keep repo clean
-07f299c2bfe7c0d081e7cc2b2a6141a7c63e53c3	update kaggle notebook with log-residual, lower lr, higher early stopping
-e2ec5476017b41a239eaed10db4472d6565b0212	ghi nhận kết quả chung cuộc vòng 3 xuất sắc
-b12777a79fb7a01d52305ba88cfb03a49f215c39	cập nhật kết quả vòng 2
