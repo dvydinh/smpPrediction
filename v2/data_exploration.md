@@ -34,7 +34,17 @@ Dataset VCGM (Vietnam Competitive Generation Market) được lưu trữ trên K
 
 Tất cả các bảng dữ liệu con được join vào master index theo cột `datetime`, đảm bảo không bị lệch thời gian.
 
-## 3. Feature engineering
+## 2.1. Tiền xử lý dữ liệu (Data Preprocessing)
+
+Trước khi tiến hành khai phá, dữ liệu thô đi qua các bước làm sạch chuẩn mực:
+
+- **Xử lý trùng lặp (Duplicates) & Khóa Master Index**: Dữ liệu từ NSMO đôi khi có hiện tượng ghi đè/trùng lặp tại cùng 1 chu kỳ. Hệ thống sử dụng `drop_duplicates('datetime')` để triệt tiêu dòng thừa. Sau đó, toàn bộ được ép (reindex) vào `master_idx` (Tần suất chuẩn 30 phút). Điều này ngăn chặn tuyệt đối lỗi nhảy cóc thời gian hoặc thủng lỗ chu kỳ.
+- **Xử lý ngoại lai (Outliers)**: Trong thị trường điện, các pha giá giật lên trần (1778.6 VNĐ) do sự cố máy phát/thiếu dự phòng là **tín hiệu đắt giá nhất**, tuyệt đối không được xóa bỏ bằng các phương pháp thống kê thông thường (như Z-score > 3). Để mô hình học được ngoại lai này mà không bị bùng nổ gradient, giải pháp bao gồm:
+  - Khống chế biên độ bằng biến đổi Logarit tự nhiên (`np.log1p(Y)`).
+  - Sử dụng thuật toán Tree-based (LightGBM) miễn nhiễm với độ lớn của feature outliers.
+  - Tại khâu Đánh giá (Fair Evaluation), tự động cô lập mảng giá siêu nhạy cảm (<100 và >1778) để tính toán sai số MAPE cốt lõi của thị trường, tránh việc chia cho số gần 0 làm sai lệch báo cáo.
+
+## 3. Khai phá dữ liệu (Feature Engineering & Datamining)
 
 ### 3.1. Xử lý missing values
 Thứ tự ưu tiên (chỉ dùng phương pháp nhìn về quá khứ, không nội suy tương lai):
