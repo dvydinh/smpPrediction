@@ -13,13 +13,10 @@ Bạn hãy copy thư mục `models/` này về môi trường Server / Máy tín
 ### Bước 2: Chuẩn bị Dữ liệu (API Thời tiết + Database nội bộ)
 Mô hình sẽ không thể chạy nếu thiếu dữ liệu đầu vào. Bạn cần:
 1. **Dữ liệu Database:** Kéo giá SMP, phụ tải, lượng nước về hồ thủy điện... tính từ **07:30 sáng nay trở về trước**.
-2. **Dữ liệu API Thời tiết:** Gọi API để lấy **Dự báo thời tiết ngày mai (D+1)** cho 3 thành phố Hà Nội, Đà Nẵng, TP.HCM. Cần đặc biệt chú ý đến các biến bức xạ (Shortwave, Direct, Diffuse) để dự báo điện mặt trời.
+2. **Dữ liệu API Thời tiết:** Cần gọi API để lấy **Dự báo thời tiết ngày mai (D+1)** cho 3 thành phố Hà Nội, Đà Nẵng, TP.HCM. Cần đặc biệt chú ý đến các biến bức xạ (Shortwave, Direct, Diffuse) để dự báo điện mặt trời.
    
-   👉 **Các nhà cung cấp API Thời tiết khuyên dùng cho ngành Năng lượng:**
-   - **Open-Meteo (Khuyên dùng thử nghiệm):** Hoàn toàn miễn phí, mã nguồn mở, cung cấp đầy đủ các biến bức xạ mặt trời (GHI, DNI, DHI) và tốc độ gió. Rất dễ tích hợp.
-   - **Solcast:** API tiêu chuẩn vàng của ngành năng lượng tái tạo, chuyên trị dự báo bức xạ mặt trời độ phân giải cao. Có gói API cho doanh nghiệp năng lượng.
-   - **Meteomatics / AccuWeather Pro:** API thương mại độ tin cậy cao, thường được các trung tâm điều độ (như A0) sử dụng làm dữ liệu đầu vào.
-
+   👉 **Tin vui:** Script `v2/inference_production.py` đã được tích hợp sẵn 100% mã nguồn kết nối trực tiếp với **Open-Meteo API**. Mã nguồn mở này hoàn toàn miễn phí, tự động tải chính xác 21 biến bức xạ/nhiệt độ mà mô hình yêu cầu. Bạn không cần code thêm gì cả!
+   
 ### Bước 3: Chạy Code Dự báo (`inference_production.py`)
 Tôi đã viết sẵn bộ khung mã nguồn API Prediction trong file `v2/inference_production.py`. 
 Bạn hẹn giờ (Cronjob / Task Scheduler) cho server tự động chạy file này vào lúc **08:00 sáng mỗi ngày**:
@@ -32,7 +29,7 @@ python v2/inference_production.py
 1. Khởi động lúc 08:00 sáng.
 2. Thiết lập chốt dữ liệu (Snapshot) tại 07:30.
 3. Kéo dữ liệu từ DB (giá SMP D-7, D-14, D-21 để làm Median Baseline, và 16 Dense Lags đêm qua).
-4. Gọi API Thời tiết lấy dự báo D+1.
+4. Gọi API Thời tiết Open-Meteo lấy dự báo D+1.
 5. Lắp ráp ma trận `X` có kích thước `(48, 119)` (48 dòng tương ứng 48 chu kỳ ngày mai).
 6. Nạp mô hình `lgb_global.txt` và suy luận ra Log-Residual.
 7. Giải mã Logarithmic bằng Baseline để ra giá VNĐ/kWh cuối cùng.
@@ -71,17 +68,9 @@ Trong thư mục này, kiến trúc 48 mô hình độc lập (Direct Multi-Step
 3. **Mô hình LightGBM khổng lồ:** Tăng `num_leaves` lên `255` để mô hình có đủ không gian ghi nhớ quy luật của toàn bộ mốc thời gian.
 4. **Reshape inference:** Sau khi dự báo mảng dọc, mảng kết quả sẽ được `reshape` trở lại thành `(N, 48)` để các khâu đánh giá MAPE, tính toán sai số, và vẽ biểu đồ phân tích tương đồng 100% với phiên bản cũ.
 
-## Kỷ lục thống kê huấn luyện (Ngày 04/08/2026)
+## Kỷ lục thống kê huấn luyện (V2 mới nhất)
 
 Dưới đây là các chỉ số chính xác được trích xuất từ file `metadata.json` sinh ra trong lần chạy mới nhất:
-
-- **Tổng thời gian huấn luyện:** ~11 giây (nhanh hơn rất nhiều so với V1 do chỉ train 1 mô hình duy nhất).
-9. `cloud_cover_hcmc` (Gain: ~514)
-10. `temperature_hanoi` (Gain: ~501)
-...
-_Đặc biệt: `target_cycle_id` đứng ở vị trí thứ 18 (Gain: ~346), minh chứng cho sự thành công của kiến trúc Global Model._
-
-Tất cả các thông số đột phá từ bản gốc (như **Log-Residuals**, **Early Stopping 200**) đều được giữ nguyên.
 
 - **Tổng thời gian huấn luyện:** ~33 giây (Rất nhanh nhờ kiến trúc Global và mã hóa Vector).
 
@@ -94,11 +83,11 @@ Tất cả các thông số đột phá từ bản gốc (như **Log-Residuals**
 - **RMSE**: 2.70 vs 682.72 (+99.6% Gain)
 - **MAE**: 1.32 vs 435.73 (+99.7% Gain)
 
-### 2. Feature Importance (Top Các Biến Quan Trọng Nhất)
+### Feature Importance (Top Các Biến Quan Trọng Nhất)
 Với kiến trúc 119 features (đã loại bỏ rò rỉ dữ liệu), mô hình học được những động lực cực kỳ thú vị:
-1. smp_recent_16: Mức giá SMP của đúng chu kỳ này đêm hôm trước (Đây là Dense Lag mạnh nhất, chứng tỏ tính quán tính siêu cao của chu kỳ 24h).
-2. hydro_total_discharge_m3s: Tổng lưu lượng xả thủy điện (Quyết định nền giá rẻ hay đắt của toàn hệ thống).
-3. coal_proxy_price: Giá than (Định hình trần giá nhiệt điện).
-4. 	emperature_hanoi: Nhiệt độ thủ đô (Dẫn dắt phụ tải miền Bắc).
-5. disp_wind_midday_mw: Công suất điện gió buổi trưa.
-6. smp_recent_4: Giá SMP cách đây 2 tiếng rưỡi (Bắt nhịp xu hướng ramp rate cực tốt).
+1. `smp_recent_16`: Mức giá SMP của đúng chu kỳ này đêm hôm trước (Đây là Dense Lag mạnh nhất, chứng tỏ tính quán tính siêu cao của chu kỳ 24h).
+2. `hydro_total_discharge_m3s`: Tổng lưu lượng xả thủy điện (Quyết định nền giá rẻ hay đắt của toàn hệ thống).
+3. `coal_proxy_price`: Giá than (Định hình trần giá nhiệt điện).
+4. `temperature_hanoi`: Nhiệt độ thủ đô (Dẫn dắt phụ tải miền Bắc).
+5. `disp_wind_midday_mw`: Công suất điện gió buổi trưa.
+6. `smp_recent_4`: Giá SMP cách đây 2 tiếng rưỡi (Bắt nhịp xu hướng ramp rate cực tốt).
