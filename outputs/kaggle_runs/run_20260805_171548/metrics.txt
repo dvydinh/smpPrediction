@@ -1,0 +1,7 @@
+RMSE (all): 381.24
+MAE (all): 269.16
+MAE (clean): 226.32
+RMSE (clean): 315.36
+MAPE (clean): 17.24%
+WMAPE (clean): 15.96%
+Valid samples: 7296 / 8160
