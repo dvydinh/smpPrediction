@@ -3,8 +3,6 @@ __pycache__/
 *.pyo
 .ipynb_checkpoints/
 
-v2/outputs/
-v2/models/
 outputs/
 models/
 
@@ -19,3 +17,4 @@ scratch_nb.py
 vcgm_dataset.zip
 _msg_filter.py
 commit_map.txt
+references_friends/

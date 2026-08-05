@@ -108,6 +108,6 @@ def load_and_preprocess_data(DATA_ROOT):
         if df[col].isna().any(): df[col] = df[col].ffill()
         if df[col].isna().any(): df[col] = df[col].bfill()
 
-    print(f"[INFO] Preprocessing_complete. Shape: {df.shape}")
+    print(f"Preprocessing complete. Shape: {df.shape}")
     return df
 
