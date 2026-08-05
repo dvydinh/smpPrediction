@@ -48,9 +48,14 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
     
     # Visualizations
     if output_dir:
-        # 1. Feature Importance
+        # 1. Feature Importance (from LGBM base model)
         plt.figure(figsize=(12, 8))
-        importances = pd.Series(model.feature_importance(importance_type='gain'), index=feature_cols).sort_values(ascending=False).head(20)
+        if hasattr(model, 'models') and 'lgb' in model.models:
+            importances = pd.Series(model.models['lgb'].feature_importances_, index=feature_cols)
+        else:
+            importances = pd.Series(model.feature_importance(importance_type='gain'), index=feature_cols)
+            
+        importances = importances.sort_values(ascending=False).head(20)
         importances.sort_values().plot(kind='barh', color='#3498db')
         plt.title('Top 20 Feature Importances (Gain)', fontsize=14, pad=15)
         plt.xlabel('Gain', fontsize=12)

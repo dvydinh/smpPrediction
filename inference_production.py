@@ -6,9 +6,10 @@ from datetime import datetime, timedelta
 import requests
 import json
 from pathlib import Path
+from src.model_utils import StackingEnsemble
 
 BASE_DIR = Path(__file__).resolve().parent
-MODEL_PATH = BASE_DIR / "models" / "lgb_global.txt"
+MODEL_PATH = BASE_DIR / "models" / "stacking_ensemble.pkl"
 
 
 def fetch_weather_forecast(target_date):
@@ -59,11 +60,11 @@ def predict_day_ahead(target_date_str=None):
     print(f"Target date: {target_date.strftime('%Y-%m-%d')}")
 
     # Load model
-    print("Loading model...")
+    print("Loading Stacking Ensemble model...")
     try:
-        model = lgb.Booster(model_file=str(MODEL_PATH))
+        model = StackingEnsemble.load(str(MODEL_PATH))
     except Exception as e:
-        print(f"[ERROR] Model not found at {MODEL_PATH}. Train on Kaggle first.")
+        print(f"[ERROR] Model not found at {MODEL_PATH}. Train on Kaggle first. Error: {e}")
         return
 
     # Load full historical data through the same pipeline used in training
@@ -115,7 +116,8 @@ def predict_day_ahead(target_date_str=None):
 
     # Extract the target day (last 48 rows)
     X_48 = full_df.iloc[-48:].copy()
-    feature_names = model.feature_name()
+    # The feature names can be retrieved from the LGBM base model
+    feature_names = model.models['lgb'].feature_name_
 
     # Ensure all required features exist
     for col in feature_names:
