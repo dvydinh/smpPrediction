@@ -14,23 +14,45 @@ MODEL_PATH = "models/lgb_global.txt"
 
 def fetch_weather_forecast(target_date):
     """
-    Giả lập gọi API Thời tiết (Ví dụ: OpenWeatherMap, AccuWeather).
-    Trong thực tế, bạn thay bằng HTTP GET request thực.
+    Gọi API Open-Meteo thật để lấy dữ liệu 48 chu kỳ của ngày mai (D+1)
     """
-    print(f"[API] Đang lấy dự báo thời tiết cho ngày {target_date.strftime('%Y-%m-%d')}...")
-    # Mock data: 21 biến thời tiết (7 biến x 3 thành phố)
-    # Nhiệt độ, độ ẩm, mây che phủ, tốc độ gió, bức xạ sóng ngắn, bức xạ trực tiếp, khuếch tán
-    weather_features = {
-        'temp_hanoi': 28.5, 'humidity_hanoi': 75.0, 'cloud_hanoi': 20.0, 'wind_hanoi': 3.5, 
-        'shortwave_hanoi': 450.0, 'direct_hanoi': 300.0, 'diffuse_hanoi': 150.0,
-        # ... (tương tự cho Đà Nẵng, TP.HCM)
+    print(f"[API] Đang tải dự báo thời tiết Open-Meteo cho ngày {target_date.strftime('%Y-%m-%d')}...")
+    # Tọa độ 3 thành phố
+    locations = {
+        'hanoi': {'lat': 21.0285, 'lon': 105.8542},
+        'danang': {'lat': 16.0678, 'lon': 108.2208},
+        'hcmc': {'lat': 10.7626, 'lon': 106.6602}
     }
-    # Điền giá trị giả lập cho đủ 21 biến (để script không lỗi khi minh họa)
-    for city in ['danang', 'hcmc']:
-        for var in ['temp', 'humidity', 'cloud', 'wind', 'shortwave', 'direct', 'diffuse']:
-            weather_features[f'{var}_{city}'] = weather_features[f'{var}_hanoi']
+    
+    # Danh sách các biến cần lấy
+    variables = "temperature_2m,relative_humidity_2m,wind_speed_10m,cloud_cover,precipitation,shortwave_radiation,direct_radiation,diffuse_radiation"
+    
+    weather_dict = {}
+        # Lặp qua 3 thành phố để gọi API
+    for city, coords in locations.items():
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={coords['lat']}&longitude={coords['lon']}&hourly={variables}&timezone=Asia%2FBangkok"
+        response = requests.get(url).json()
+        
+        # Open-Meteo trả về 168 giờ (7 ngày). Ta cần lọc ra 24 giờ của ngày target_date
+        df_weather = pd.DataFrame(response['hourly'])
+        df_weather['time'] = pd.to_datetime(df_weather['time'])
+        df_target = df_weather[df_weather['time'].dt.date == target_date.date()].copy()
+        
+        # Chuyển đổi dữ liệu 24 giờ thành 48 chu kỳ 30-phút bằng cách nhân đôi mỗi phần tử (repeat)
+        # Mỗi giờ sẽ được copy thành 2 chu kỳ (Ví dụ: 00:00 và 00:30 dùng chung thời tiết của 00:00)
+        
+        weather_dict[f'temperature_{city}'] = np.repeat(df_target['temperature_2m'].values, 2)
+        weather_dict[f'humidity_{city}'] = np.repeat(df_target['relative_humidity_2m'].values, 2)
+        weather_dict[f'wind_speed_{city}'] = np.repeat(df_target['wind_speed_10m'].values, 2)
+        weather_dict[f'cloud_cover_{city}'] = np.repeat(df_target['cloud_cover'].values, 2)
+        weather_dict[f'precipitation_{city}'] = np.repeat(df_target['precipitation'].values, 2)
+        weather_dict[f'shortwave_radiation_{city}'] = np.repeat(df_target['shortwave_radiation'].values, 2)
+        
+        if city == 'hanoi' or city == 'hcmc':
+            weather_dict[f'direct_radiation_{city}'] = np.repeat(df_target['direct_radiation'].values, 2)
+            weather_dict[f'diffuse_radiation_{city}'] = np.repeat(df_target['diffuse_radiation'].values, 2)
             
-    return weather_features
+    return weather_dict
 
 def fetch_historical_data_from_db(current_date):
     """
@@ -122,6 +144,7 @@ def predict_day_ahead(target_date_str=None):
     
     # 4. Dự báo Residual
     print("4. Đang chạy mô hình suy luận (Inference)...")
+    X_48 = X_48.astype(float) # Đảm bảo mọi cột đều là số thực để LightGBM không báo lỗi Object dtype
     y_pred_res = model.predict(X_48)
     
     # 5. Khôi phục giá trị thực từ Log-Residual và Y_base
