@@ -7,6 +7,9 @@ import xgboost as xgb
 from catboost import CatBoostRegressor
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import TimeSeriesSplit
+from sklearn.neural_network import MLPRegressor
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
 
 class StackingEnsemble:
     def __init__(self, output_dir):
@@ -18,14 +21,18 @@ class StackingEnsemble:
         return {
             'lgb': lgb.LGBMRegressor(objective='mae', learning_rate=0.01, num_leaves=127, n_estimators=1500, random_state=42),
             'xgb': xgb.XGBRegressor(objective='reg:absoluteerror', learning_rate=0.01, max_depth=8, n_estimators=1500, random_state=42),
-            'cb': CatBoostRegressor(loss_function='MAE', learning_rate=0.02, iterations=1500, depth=8, random_state=42, verbose=False)
+            'cb': CatBoostRegressor(loss_function='MAE', learning_rate=0.02, iterations=1500, depth=8, random_state=42, verbose=False),
+            'mlp': Pipeline([
+                ('scaler', StandardScaler()),
+                ('mlp', MLPRegressor(hidden_layer_sizes=(128, 64), activation='relu', max_iter=500, random_state=42, early_stopping=True, n_iter_no_change=20))
+            ])
         }
     
     def fit(self, X, y):
         tscv = TimeSeriesSplit(n_splits=5)
-        oof_preds = np.zeros((len(X), 3))
-        
         base_models = self.get_base_models()
+        oof_preds = np.zeros((len(X), len(base_models)))
+        
         model_names = list(base_models.keys())
         
         print("Stage 1: Training base models (OOF predictions with TimeSeriesSplit)...")
