@@ -147,7 +147,7 @@ def predict_day_ahead(target_date_str=None):
         
         price = np.clip(y_pred_final[cycle], 1.0, 1778.6)
         
-        print(f" {cycle:02d}    | {time_str} | {price:,.1f} đ")
+        print(f" {cycle:02d}    | {time_str} | {price:,.1f} VND")
         
     print("-" * 40)
     print("[INFO] Ready_for_export/email_dispatch.")
