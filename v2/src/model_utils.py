@@ -87,7 +87,7 @@ def flatten_for_global_model(X_daily, Y_daily, Y_base, Y_res, dates_arr, feature
     
     return X_flat, Y_daily_flat, Y_base_flat, Y_res_flat, dates_flat, extended_feature_cols
 
-def split_and_train_lgb(X_flat, Y_res_flat, Y_base_flat, dates_flat, feature_cols):
+def split_and_train_lgb(X_flat, Y_res_flat, Y_base_flat, dates_flat, ext_feature_cols, output_dir=None):
     dates_pd = pd.to_datetime(dates_flat)
     train_mask = dates_pd <= '2026-03-31'
     test_mask  = dates_pd >= '2026-04-01'
@@ -114,5 +114,13 @@ def split_and_train_lgb(X_flat, Y_res_flat, Y_base_flat, dates_flat, feature_col
     val_mae = global_model.best_score['valid_0']['l1']
     print(f'[INFO] Training_complete. Val_MAE: {val_mae:.4f}')
     
+    if output_dir:
+        import os
+        model_dir = os.path.join(output_dir, 'models')
+        os.makedirs(model_dir, exist_ok=True)
+        model_path = os.path.join(model_dir, 'lgb_global.txt')
+        global_model.save_model(model_path)
+        print(f'[INFO] Model_saved: {model_path}')
+        
     return global_model, X_test, Y_test, Y_base_test
 
