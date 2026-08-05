@@ -101,7 +101,7 @@ def split_and_train_lgb(X_flat, Y_res_flat, Y_base_flat, dates_flat, ext_feature
     
     print(f'[INFO] Data_split: Train= {len(X_tr)} | Val: {n_val} | Test: {len(X_test)}')
 
-    train_ds = lgb.Dataset(X_tr, label=Y_tr, feature_name=feature_cols, free_raw_data=True)
+    train_ds = lgb.Dataset(X_tr, label=Y_tr, feature_name=ext_feature_cols, free_raw_data=True)
     val_ds   = lgb.Dataset(X_vl, label=Y_vl, reference=train_ds, free_raw_data=True)
 
     print('[INFO] Training LightGBM Global Model...')
