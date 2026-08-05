@@ -30,6 +30,7 @@ def evaluate_and_plot(global_model, X_test, Y_test, Y_base_test, feature_cols, O
     
     if len(y_true_clean) > 0:
         mape = np.mean(np.abs((y_true_clean - y_pred_clean) / y_true_clean)) * 100
+        wmape = np.sum(np.abs(y_true_clean - y_pred_clean)) / np.sum(y_true_clean) * 100
         mae_clean = mean_absolute_error(y_true_clean, y_pred_clean)
         rmse_clean = np.sqrt(mean_squared_error(y_true_clean, y_pred_clean))
         
@@ -37,6 +38,7 @@ def evaluate_and_plot(global_model, X_test, Y_test, Y_base_test, feature_cols, O
         print(f'[EVAL] MAE_Clean: {mae_clean:.2f} VNĐ')
         print(f'[EVAL] RMSE_Clean: {rmse_clean:.2f} VNĐ')
         print(f'[EVAL] MAPE_Clean: {mape:.2f}%')
+        print(f'[EVAL] WMAPE_Clean: {wmape:.2f}%')
     else:
         print("[WARN] No_samples_in_fair_evaluation_range.")
     print('='*50 + '\n')
