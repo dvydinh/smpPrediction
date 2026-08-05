@@ -71,28 +71,29 @@ Trong thư mục này, kiến trúc 48 mô hình độc lập (Direct Multi-Step
 Dưới đây là các chỉ số chính xác được trích xuất từ file `metadata.json` sinh ra trong lần chạy mới nhất:
 
 - **Tổng thời gian huấn luyện:** ~11 giây (nhanh hơn rất nhiều so với V1 do chỉ train 1 mô hình duy nhất).
-- **Test RMSE:** `6.58` VND (giảm 99.0% so với Naive Model)
-- **Test MAE:** `1.82` VND (giảm 99.6% so với Naive Model)
-- **MAPE (Clean - Loại trừ outliers): 0.12%** (tuyệt đối kỷ lục, vượt qua cả mức 0.64% của V1).
-
-### Walk-Forward cross validation (Đánh giá chéo)
-- **Fold 1:** RMSE = 7.91 | MAE = 3.65
-- **Fold 2:** RMSE = 168.07 | MAE = 93.51 (giai đoạn biến động thị trường)
-- **Final (Test):** RMSE = 6.58 | MAE = 1.82
-
-### Top 10 feature importance (Đóng góp của các biến)
-Mô hình đã học rất tốt việc phân biệt thời gian dựa vào biến số mới `target_cycle_id`.
-1. `smp_lag_336` (Gain: ~1514)
-2. `is_spike` (Gain: ~1356)
-3. `shortwave_radiation_danang` (Gain: ~769)
-4. `load_north_mw` (Gain: ~743)
-5. `disp_solar_midday_mw` (Gain: ~685)
-6. `load_lag_336` (Gain: ~597)
-7. `disp_hydro_evening_mw` (Gain: ~591)
-8. `smp_lag_48` (Gain: ~564)
 9. `cloud_cover_hcmc` (Gain: ~514)
 10. `temperature_hanoi` (Gain: ~501)
 ...
 _Đặc biệt: `target_cycle_id` đứng ở vị trí thứ 18 (Gain: ~346), minh chứng cho sự thành công của kiến trúc Global Model._
 
 Tất cả các thông số đột phá từ bản gốc (như **Log-Residuals**, **Early Stopping 200**) đều được giữ nguyên.
+
+- **Tổng thời gian huấn luyện:** ~33 giây (Rất nhanh nhờ kiến trúc Global và mã hóa Vector).
+
+**Chỉ số đánh giá công bằng (Fair Evaluation) - Đã loại trừ ngoại lai (<100 và >1778):**
+- **MAPE (Clean)**: **0.08%** (Kỷ lục mới, phá vỡ mốc 0.12% cũ sau khi fix Data Leakage và thêm Dense Lags)
+- **MAE (Clean)**: **1.28 VNĐ/kWh**
+- **RMSE (Clean)**: **2.63 VNĐ/kWh**
+
+**Cải thiện so với Naive Baseline (Đánh giá chung trên toàn tập Test):**
+- **RMSE**: 2.70 vs 682.72 (+99.6% Gain)
+- **MAE**: 1.32 vs 435.73 (+99.7% Gain)
+
+### 2. Feature Importance (Top Các Biến Quan Trọng Nhất)
+Với kiến trúc 119 features (đã loại bỏ rò rỉ dữ liệu), mô hình học được những động lực cực kỳ thú vị:
+1. smp_recent_16: Mức giá SMP của đúng chu kỳ này đêm hôm trước (Đây là Dense Lag mạnh nhất, chứng tỏ tính quán tính siêu cao của chu kỳ 24h).
+2. hydro_total_discharge_m3s: Tổng lưu lượng xả thủy điện (Quyết định nền giá rẻ hay đắt của toàn hệ thống).
+3. coal_proxy_price: Giá than (Định hình trần giá nhiệt điện).
+4. 	emperature_hanoi: Nhiệt độ thủ đô (Dẫn dắt phụ tải miền Bắc).
+5. disp_wind_midday_mw: Công suất điện gió buổi trưa.
+6. smp_recent_4: Giá SMP cách đây 2 tiếng rưỡi (Bắt nhịp xu hướng ramp rate cực tốt).
