@@ -85,3 +85,45 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
         plt.tight_layout()
         plt.savefig(Path(output_dir) / 'scatter_clean_regime.png', dpi=300)
         plt.close()
+
+        # 4. Error Distribution Histogram (clean regime)
+        errors_clean = y_pred_clean - y_true_clean
+        plt.figure(figsize=(10, 6))
+        plt.hist(errors_clean, bins=60, color='#27ae60', edgecolor='white', alpha=0.85)
+        plt.axvline(0, color='black', linestyle='--', linewidth=1.5)
+        plt.title('Prediction Error Distribution (Clean Regime)', fontsize=14, pad=15)
+        plt.xlabel('Error (Predicted - Actual) VND', fontsize=12)
+        plt.ylabel('Count', fontsize=12)
+        plt.grid(axis='y', linestyle='--', alpha=0.5)
+        plt.tight_layout()
+        plt.savefig(Path(output_dir) / 'error_distribution.png', dpi=300)
+        plt.close()
+
+        # 5. MAE by Cycle (hour of day)
+        df_eval = pd.DataFrame({'actual': Y_test, 'pred': Y_pred}, index=df_test.index)
+        df_eval['cycle'] = df_eval.index.hour * 2 + (df_eval.index.minute == 30).astype(int)
+        df_eval['abs_error'] = np.abs(df_eval['actual'] - df_eval['pred'])
+        mae_by_cycle = df_eval.groupby('cycle')['abs_error'].mean()
+
+        plt.figure(figsize=(14, 5))
+        colors = ['#e74c3c' if c > 15 else '#3498db' for c in mae_by_cycle.index]
+        plt.bar(mae_by_cycle.index, mae_by_cycle.values, color=colors, edgecolor='white')
+        plt.title('MAE by Cycle (blue = morning available, red = blindspot)', fontsize=13, pad=15)
+        plt.xlabel('Cycle (0=00:00, 47=23:30)', fontsize=12)
+        plt.ylabel('MAE (VND)', fontsize=12)
+        plt.xticks(range(0, 48, 4))
+        plt.grid(axis='y', linestyle='--', alpha=0.5)
+        plt.tight_layout()
+        plt.savefig(Path(output_dir) / 'mae_by_cycle.png', dpi=300)
+        plt.close()
+
+        # 6. Write metrics summary
+        with open(Path(output_dir) / 'metrics.txt', 'w') as f:
+            f.write(f'RMSE (all): {full_rmse:.2f}\n')
+            f.write(f'MAE (all): {full_mae:.2f}\n')
+            if len(y_true_clean) > 0:
+                f.write(f'MAE (clean): {mae_clean:.2f}\n')
+                f.write(f'RMSE (clean): {rmse_clean:.2f}\n')
+                f.write(f'MAPE (clean): {mape_clean:.2f}%\n')
+                f.write(f'WMAPE (clean): {wmape_clean:.2f}%\n')
+                f.write(f'Valid samples: {len(y_true_clean)} / {len(Y_test)}\n')
