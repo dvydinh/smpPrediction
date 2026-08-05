@@ -17,6 +17,10 @@ Dataset VCGM (Vietnam Competitive Generation Market) được lưu trữ trên K
 - 7 biến mỗi thành phố: nhiệt độ, độ ẩm, mây che phủ, tốc độ gió, bức xạ sóng ngắn, bức xạ trực tiếp, bức xạ khuếch tán.
 - Tổng cộng: **21 biến thời tiết**.
 
+> **⚠️ Giới hạn quan trọng:** Dữ liệu thời tiết trong dataset là **actual weather** (thời tiết thực tế đã xảy ra), không phải **forecast weather** (dự báo khí tượng). Snapshot lấy tại 07:30 ngày D nên biến thời tiết phản ánh điều kiện sáng hôm nay, không phải điều kiện ngày mai (D+1 — ngày cần dự báo). Trong môi trường production thực tế, phải thay thế bằng nguồn dữ liệu dự báo thời tiết D+1 từ API khí tượng.
+>
+> Lý do chưa sửa: dataset VCGM không cung cấp dữ liệu forecast. Mô hình vẫn hoạt động vì thời tiết có tính tự tương quan cao (autocorrelation) — thời tiết sáng nay là proxy hợp lý cho ngày mai trong điều kiện bình thường. Tuy nhiên, khi có front lạnh đột ngột hoặc bão, proxy này sẽ sai lệch nghiêm trọng.
+
 ### 1.4. Dữ liệu nhiên liệu (`exogenous/fuel/`)
 - 5 biến: giá than proxy, giá dầu Brent, giá gas proxy, tỷ giá USD/VND, chỉ số DXY.
 - Tần suất ngày, forward-fill xuống 30 phút.
@@ -33,10 +37,12 @@ Tất cả các bảng dữ liệu con được join vào master index theo cộ
 ## 3. Feature engineering
 
 ### 3.1. Xử lý missing values
-Thứ tự ưu tiên:
-1. Nội suy tuyến tính (`interpolate(method='linear', limit=2)`)
-2. Lấp bằng giá trị cùng giờ tuần trước (`shift(336)`)
-3. Forward-fill + backward-fill
+Thứ tự ưu tiên (chỉ dùng phương pháp nhìn về quá khứ, không nội suy tương lai):
+1. Lấp bằng giá trị cùng giờ tuần trước (`shift(336)`)
+2. Forward-fill (`ffill`) — kéo giá trị gần nhất từ quá khứ
+3. Backward-fill (`bfill`) — chỉ cho vài dòng đầu tiên của dataset (01/2021) khi không có quá khứ
+
+> **Lưu ý:** Phiên bản trước sử dụng `interpolate(method='linear')` — phương pháp này dùng cả điểm tương lai (t+1) để điền cho điểm hiện tại (t), gây ra data leakage tinh vi. Đã loại bỏ hoàn toàn.
 
 ### 3.2. Biến thời gian (cyclical encoding)
 Sử dụng sin/cos để mã hóa tính tuần hoàn:
@@ -50,6 +56,12 @@ Tất cả lag được tính **trước** khi trích xuất snapshot, trên Dat
 - `smp_lag_96` (2 ngày trước)
 - `smp_lag_336` (7 ngày trước — cùng thứ tuần trước)
 - Tương tự cho `load_lag_*` và `smp_north/south_lag_*`
+
+### 3.3b. Dense lag vector (16 giá trị SMP gần nhất)
+Để mô hình "nhìn" được hình dáng đường cong giá và ramp rate trước thời điểm snapshot:
+- `smp_recent_1` đến `smp_recent_16`: 16 giá trị SMP liên tiếp từ 07:00 ngược về 23:30 đêm trước.
+- Cho phép mô hình phát hiện xu hướng tăng/giảm, mức sàn/trần đêm qua, và tốc độ biến động.
+- Tất cả đều nằm **trong** ngày D (trước snapshot 07:30), không leakage.
 
 **Lưu ý quan trọng về LAG_SHIFT = 48:**
 Tất cả rolling statistics (`smp_rolling_mean_24h`, `load_rolling_std_72h`,...) đều dùng `shift(48)` trước khi tính rolling. Điều này đảm bảo chỉ sử dụng dữ liệu từ **ít nhất 1 ngày trước**, tránh data leakage.
@@ -72,7 +84,7 @@ Tất cả rolling statistics (`smp_rolling_mean_24h`, `load_rolling_std_72h`,..
 - `is_weekend`, `is_workday`, `is_holiday`, `is_tet`, `is_pre_holiday`, `is_post_holiday`
 - `season` (1-4)
 
-**Tổng số features sau engineering: 103 cột** (trước khi thêm cycle features).
+**Tổng số features sau engineering: 119 cột** (trước khi thêm cycle features). Bao gồm 16 dense lag mới.
 
 ## 4. Cách trích xuất X và Y
 
@@ -86,13 +98,17 @@ Snapshot: D 07:30   →   Predict: D+1 00:00, 00:30, ..., 23:30
 
 Sau bước này: `X_daily.shape = (1995, 101)`, `Y_daily.shape = (1995, 48)`.
 
-## 5. Residual learning (log-residuals)
+## 5. Residual learning (log-residuals với median baseline)
 
-Thay vì dự đoán giá SMP trực tiếp, mô hình học **phần chênh lệch logarithmic** so với 7 ngày trước:
+Thay vì dự đoán giá SMP trực tiếp, mô hình học **phần chênh lệch logarithmic** so với baseline:
 
-```
-Y_base = Y_daily[:-7]      # giá SMP cùng ngày tuần trước
-Y_res  = log1p(Y_daily[7:]) - log1p(Y_base)
+```python
+# Baseline = median của cùng thứ trong 3 tuần gần nhất (D-7, D-14, D-21)
+for i in range(21, len(Y_daily)):
+    candidates = [Y_daily[i-7], Y_daily[i-14], Y_daily[i-21]]
+    Y_base[i] = np.median(candidates, axis=0)
+
+Y_res = log1p(Y_daily) - log1p(Y_base)
 ```
 
 Khi inference:
@@ -100,7 +116,9 @@ Khi inference:
 Y_pred = expm1(log1p(Y_base_test) + Y_pred_res)
 ```
 
-Sau bước này: dataset bị cắt 7 dòng đầu → `X_daily.shape = (1988, 101)`.
+> **Tại sao dùng median thay vì chỉ D-7?** Nếu đúng giờ đó tuần trước có sự cố nhà máy (trip), giá vọt lên 1778 VND. Dùng 1 ngày D-7 duy nhất sẽ khiến baseline bị nhiễu nặng, mô hình phải gánh residual cực âm. Median của 3 tuần khử nhiễu này hiệu quả.
+
+Sau bước này: dataset bị cắt 21 dòng đầu → `X_daily.shape = (1974, 119)`.
 
 ## 6. Vertical flattening (kiến trúc V2)
 
@@ -115,7 +133,7 @@ Thêm 3 features mới cho mỗi dòng:
 - `target_cycle_id` (0-47): chu kỳ nào trong ngày
 - `target_sin_hour`, `target_cos_hour`: mã hóa lượng giác
 
-**Sau flattening: `X.shape = (95424, 104)`, `Y.shape = (95424,)`**
+**Sau flattening: `X.shape = (N*48, 122)`, `Y.shape = (N*48,)`** (con số chính xác phụ thuộc vào số ngày sau khi cắt 21 dòng đầu)
 
 ### Hạn chế đã biết
 Mỗi ngày chỉ có 1 snapshot (07:30), nên cả 48 dòng sau khi flatten đều chia sẻ cùng giá trị lag. Mô hình dựa vào `target_cycle_id` để phân biệt hành vi giá giữa các giờ khác nhau. Đây không phải data leakage, nhưng là giới hạn thiết kế — mô hình không có lag riêng cho từng chu kỳ.
@@ -170,8 +188,9 @@ Không có fold nào mà validation period nằm trước training period.
 - `train_mask` và `test_mask` dùng `<=` vs `>=` trên cùng một cột ngày, không có vùng chồng lấn.
 
 ### 8.3. Residual baseline (Y_base) ✅ An toàn
-- `Y_base = Y_daily[:-7]` = giá thực tế 7 ngày trước. Đây là dữ liệu quá khứ đã biết tại thời điểm dự báo.
-- Không sử dụng bất kỳ thông tin tương lai nào.
+- `Y_base = median(Y_daily[i-7], Y_daily[i-14], Y_daily[i-21])` = trung vị giá cùng thứ trong 3 tuần gần nhất.
+- Tất cả đều là dữ liệu quá khứ đã biết tại thời điểm dự báo.
+- Median giúp khử nhiễu từ spike/trip đơn lẻ, ổn định hơn so với chỉ dùng D-7.
 
 ### 8.4. Vertical flattening ✅ An toàn
 - `np.repeat` chỉ nhân bản dòng features cũ, không tạo ra thông tin mới.
@@ -184,9 +203,9 @@ Không có fold nào mà validation period nằm trước training period.
 | Phạm vi dữ liệu               | 01/2021 – 06/2026 |
 | Tổng số ngày                   | 1995           |
 | Tổng số dòng thô (30 phút)    | 95.808         |
-| Số features gốc                | 101            |
-| Số features sau flatten        | 104            |
-| Số dòng train (flatten)        | 82.426         |
+| Số features gốc                | 119            |
+| Số features sau flatten        | 122            |
+| Số dòng train (flatten)        | ~81.700 (ước tính) |
 | Số dòng test (flatten)         | 3.840          |
 | Tỷ lệ test / tổng             | ~4%            |
 | Giá SMP trung bình             | ~1.370 VND     |
