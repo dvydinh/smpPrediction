@@ -16,9 +16,9 @@ class StackingEnsemble:
     
     def get_base_models(self):
         return {
-            'lgb': lgb.LGBMRegressor(objective='mae', learning_rate=0.03, num_leaves=127, n_estimators=600, random_state=42),
-            'xgb': xgb.XGBRegressor(objective='reg:absoluteerror', learning_rate=0.03, max_depth=8, n_estimators=600, random_state=42),
-            'cb': CatBoostRegressor(loss_function='MAE', learning_rate=0.05, iterations=600, depth=8, random_state=42, verbose=False)
+            'lgb': lgb.LGBMRegressor(objective='mae', learning_rate=0.01, num_leaves=127, n_estimators=1500, random_state=42),
+            'xgb': xgb.XGBRegressor(objective='reg:absoluteerror', learning_rate=0.01, max_depth=8, n_estimators=1500, random_state=42),
+            'cb': CatBoostRegressor(loss_function='MAE', learning_rate=0.02, iterations=1500, depth=8, random_state=42, verbose=False)
         }
     
     def fit(self, X, y):
