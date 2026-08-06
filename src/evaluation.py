@@ -122,24 +122,22 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
         plt.savefig(Path(output_dir) / 'mae_by_cycle.png', dpi=300)
         plt.close()
         
-        # 6. Monthly Chart (April 2026)
-        april_mask = (df_test.index.month == 4) & (df_test.index.year == 2026)
-        if april_mask.any():
-            df_april = df_test[april_mask]
-            apr_mae = mean_absolute_error(df_april['smp_system_price'], df_april['pred'])
-            apr_rmse = np.sqrt(mean_squared_error(df_april['smp_system_price'], df_april['pred']))
-            apr_denom = np.abs(df_april['smp_system_price']).sum()
-            apr_wmape = 100 * np.sum(np.abs(df_april['smp_system_price'] - df_april['pred'])) / apr_denom if apr_denom > 0 else np.nan
+        # 6. Monthly Charts (For every month in test set)
+        for (year, month), group in df_test.groupby([df_test.index.year, df_test.index.month]):
+            m_mae = mean_absolute_error(group['smp_system_price'], group['pred'])
+            m_rmse = np.sqrt(mean_squared_error(group['smp_system_price'], group['pred']))
+            m_denom = np.abs(group['smp_system_price']).sum()
+            m_wmape = 100 * np.sum(np.abs(group['smp_system_price'] - group['pred'])) / m_denom if m_denom > 0 else np.nan
             
             plt.figure(figsize=(18, 6))
-            plt.plot(df_april.index, df_april['smp_system_price'], label='Actual SMP', color='#2c3e50')
-            plt.plot(df_april.index, df_april['pred'], label='Predicted SMP', color='#f39c12')
-            plt.title(f'SMP forecast 2026-04 | MAE={apr_mae:.2f}, RMSE={apr_rmse:.2f}, WMAPE={apr_wmape:.2f}%', fontsize=12)
+            plt.plot(group.index, group['smp_system_price'], label='Actual SMP', color='#2c3e50')
+            plt.plot(group.index, group['pred'], label='Predicted SMP', color='#f39c12')
+            plt.title(f'SMP forecast {year}-{month:02d} | MAE={m_mae:.2f}, RMSE={m_rmse:.2f}, WMAPE={m_wmape:.2f}%', fontsize=12)
             plt.ylabel('SMP Price')
             plt.xlabel('Datetime')
             plt.legend()
             plt.tight_layout()
-            plt.savefig(Path(output_dir) / 'forecast_2026_04.png', dpi=300)
+            plt.savefig(Path(output_dir) / f'forecast_{year}_{month:02d}.png', dpi=300)
             plt.close()
 
         # 6. Write metrics summary
