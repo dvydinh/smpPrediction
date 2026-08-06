@@ -145,6 +145,16 @@ def add_engineered_features(df):
         # Hydro stress: when rain is low AND residual load is high → SMP likely to spike
         if 'residual_load_proxy' in df.columns:
             df['hydro_stress_proxy'] = df['residual_load_proxy'] / (df['precip_rolling_30d'] + 1)
+            
+    # =========================================================
+    # 8. CROSS-DOMAIN INTERACTIONS (Trial 9)
+    # =========================================================
+    if 'coal_proxy_price_lag' in df.columns and 'residual_load_proxy' in df.columns:
+        df['coal_x_residual_load'] = df['coal_proxy_price_lag'] * df['residual_load_proxy']
+    if 'gas_proxy_price_lag' in df.columns and 'residual_load_proxy' in df.columns:
+        df['gas_x_residual_load'] = df['gas_proxy_price_lag'] * df['residual_load_proxy']
+    if 'coal_proxy_price_lag' in df.columns:
+        df['coal_price_volatility_30d'] = df['coal_proxy_price'].shift(96).rolling(1440, min_periods=720).std()
 
     for col in df.select_dtypes(include=[np.number]).columns:
         if df[col].isna().any(): 
