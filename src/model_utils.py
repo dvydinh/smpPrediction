@@ -25,8 +25,8 @@ class StackingEnsemble:
     def fit(self, X, y):
         tscv = TimeSeriesSplit(n_splits=5)
         
-        # Log-transform target to handle right-skewed price distribution
-        y_log = np.log1p(y)
+        # Use raw target (log1p caused massive WMAPE degradation in Trial 7)
+        y_target = y.copy()
         
         oof_preds = np.zeros((len(X), 4))  # lgb, xgb, cb, iceemdan
         
@@ -35,8 +35,8 @@ class StackingEnsemble:
         
         print("Stage 1: Training base models (OOF predictions with TimeSeriesSplit)...")
         for i, (train_idx, val_idx) in enumerate(tscv.split(X)):
-            X_tr, y_tr = X.iloc[train_idx], y_log.iloc[train_idx]
-            X_va, y_va = X.iloc[val_idx], y_log.iloc[val_idx]
+            X_tr, y_tr = X.iloc[train_idx], y_target.iloc[train_idx]
+            X_va, y_va = X.iloc[val_idx], y_target.iloc[val_idx]
             
             for j, name in enumerate(model_names):
                 print(f"  Fold {i+1}/5 - Training Base Model: {name}")
@@ -59,7 +59,7 @@ class StackingEnsemble:
         
         valid_idx = np.concatenate([val_idx for _, val_idx in tscv.split(X)])
         meta_X = oof_preds[valid_idx]
-        meta_y = y_log.iloc[valid_idx]
+        meta_y = y_target.iloc[valid_idx]
         
         print("\nStage 2: Training Meta-Learner (Ridge Regression)...")
         self.meta_learner.fit(meta_X, meta_y)
@@ -68,13 +68,13 @@ class StackingEnsemble:
         for name in model_names:
             print(f"  Training full {name}...")
             model = self.get_base_models()[name]
-            model.fit(X, y_log)
+            model.fit(X, y_target)
             self.models[name] = model
         
         # Train ICEEMDAN on full dataset
         print("  Training full iceemdan...")
         self.iceemdan_model = ICEEMDANForecaster(n_imfs_max=6)
-        self.iceemdan_model.fit(X, y_log)
+        self.iceemdan_model.fit(X, y_target)
         self.models['iceemdan'] = self.iceemdan_model
             
         print("Stacking Ensemble training complete.")
@@ -84,8 +84,8 @@ class StackingEnsemble:
         for name, model in self.models.items():
             preds_list.append(model.predict(X))
         base_preds = np.column_stack(preds_list)
-        log_preds = self.meta_learner.predict(base_preds)
-        return np.expm1(log_preds)  # Inverse log-transform back to VND
+        preds = self.meta_learner.predict(base_preds)
+        return preds
         
     def save(self):
         os.makedirs(self.output_dir, exist_ok=True)
