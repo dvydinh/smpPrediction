@@ -121,6 +121,26 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
         plt.tight_layout()
         plt.savefig(Path(output_dir) / 'mae_by_cycle.png', dpi=300)
         plt.close()
+        
+        # 6. Monthly Chart (April 2026)
+        april_mask = (df_test.index.month == 4) & (df_test.index.year == 2026)
+        if april_mask.any():
+            df_april = df_test[april_mask]
+            apr_mae = mean_absolute_error(df_april['smp_system_price'], df_april['pred'])
+            apr_rmse = np.sqrt(mean_squared_error(df_april['smp_system_price'], df_april['pred']))
+            apr_denom = np.abs(df_april['smp_system_price']).sum()
+            apr_wmape = 100 * np.sum(np.abs(df_april['smp_system_price'] - df_april['pred'])) / apr_denom if apr_denom > 0 else np.nan
+            
+            plt.figure(figsize=(18, 6))
+            plt.plot(df_april.index, df_april['smp_system_price'], label='Actual SMP', color='#2c3e50')
+            plt.plot(df_april.index, df_april['pred'], label='Predicted SMP', color='#f39c12')
+            plt.title(f'SMP forecast 2026-04 | MAE={apr_mae:.2f}, RMSE={apr_rmse:.2f}, WMAPE={apr_wmape:.2f}%', fontsize=12)
+            plt.ylabel('SMP Price')
+            plt.xlabel('Datetime')
+            plt.legend()
+            plt.tight_layout()
+            plt.savefig(Path(output_dir) / 'forecast_2026_04.png', dpi=300)
+            plt.close()
 
         # 6. Write metrics summary
         with open(Path(output_dir) / 'metrics.txt', 'w') as f:
