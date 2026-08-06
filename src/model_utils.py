@@ -7,6 +7,7 @@ import xgboost as xgb
 from catboost import CatBoostRegressor
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import TimeSeriesSplit
+from src.iceemdan_utils import ICEEMDANForecaster
 
 class StackingEnsemble:
     def __init__(self, output_dir):
@@ -27,7 +28,7 @@ class StackingEnsemble:
         # Log-transform target to handle right-skewed price distribution
         y_log = np.log1p(y)
         
-        oof_preds = np.zeros((len(X), 3))
+        oof_preds = np.zeros((len(X), 4))  # lgb, xgb, cb, iceemdan
         
         base_models = self.get_base_models()
         model_names = list(base_models.keys())
@@ -48,6 +49,13 @@ class StackingEnsemble:
                     model.fit(X_tr, y_tr, eval_set=(X_va, y_va), early_stopping_rounds=30, verbose=False)
                 
                 oof_preds[val_idx, j] = model.predict(X_va)
+            
+            # ICEEMDAN base model (4th column)
+            # CRITICAL: decompose ONLY on training target to prevent leakage
+            print(f"  Fold {i+1}/5 - Training Base Model: iceemdan")
+            iceemdan_model = ICEEMDANForecaster(n_imfs_max=6)
+            iceemdan_model.fit(X_tr, y_tr)
+            oof_preds[val_idx, 3] = iceemdan_model.predict(X_va)
         
         valid_idx = np.concatenate([val_idx for _, val_idx in tscv.split(X)])
         meta_X = oof_preds[valid_idx]
@@ -62,11 +70,20 @@ class StackingEnsemble:
             model = self.get_base_models()[name]
             model.fit(X, y_log)
             self.models[name] = model
+        
+        # Train ICEEMDAN on full dataset
+        print("  Training full iceemdan...")
+        self.iceemdan_model = ICEEMDANForecaster(n_imfs_max=6)
+        self.iceemdan_model.fit(X, y_log)
+        self.models['iceemdan'] = self.iceemdan_model
             
         print("Stacking Ensemble training complete.")
         
     def predict(self, X):
-        base_preds = np.column_stack([self.models[name].predict(X) for name in self.models.keys()])
+        preds_list = []
+        for name, model in self.models.items():
+            preds_list.append(model.predict(X))
+        base_preds = np.column_stack(preds_list)
         log_preds = self.meta_learner.predict(base_preds)
         return np.expm1(log_preds)  # Inverse log-transform back to VND
         

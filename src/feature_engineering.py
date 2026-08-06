@@ -121,6 +121,31 @@ def add_engineered_features(df):
     # Weekend/Holiday flag (binary, complements sin/cos encoding)
     df['is_weekend'] = (df.index.dayofweek >= 5).astype(int)
 
+    # =========================================================
+    # 6. FUEL PRICE FEATURES (Blindspot Safe)
+    # =========================================================
+    # Coal/Gas/Oil prices are daily values published after market close.
+    # When forecasting D+1, we use prices up to D-1 (shift by 2 days = 96 cycles).
+    for fuel_col in ['coal_proxy_price', 'brent_price', 'gas_proxy_price', 'usd_vnd']:
+        if fuel_col in df.columns:
+            df[f'{fuel_col}_lag'] = df[fuel_col].shift(96)  # D-1 value (safe)
+            df[f'{fuel_col}_rolling_7d'] = df[fuel_col].shift(96).rolling(336, min_periods=168).mean()
+            df[f'{fuel_col}_momentum'] = df[fuel_col].shift(96) - df[fuel_col].shift(432)  # D-1 vs D-8
+
+    # =========================================================
+    # 7. HYDRO PROXY via PRECIPITATION (Blindspot Safe)
+    # =========================================================
+    # Precipitation is available from weather forecast (Open-Meteo).
+    # Rolling 30-day rainfall proxies for reservoir levels / dry-wet season.
+    precip_cols = [c for c in df.columns if 'precipitation' in c.lower()]
+    if precip_cols:
+        df['precip_total'] = df[precip_cols].sum(axis=1)
+        df['precip_rolling_7d'] = df['precip_total'].shift(48).rolling(336, min_periods=168).mean()
+        df['precip_rolling_30d'] = df['precip_total'].shift(48).rolling(1440, min_periods=720).mean()
+        # Hydro stress: when rain is low AND residual load is high → SMP likely to spike
+        if 'residual_load_proxy' in df.columns:
+            df['hydro_stress_proxy'] = df['residual_load_proxy'] / (df['precip_rolling_30d'] + 1)
+
     for col in df.select_dtypes(include=[np.number]).columns:
         if df[col].isna().any(): 
             df[col] = df[col].ffill().bfill()
