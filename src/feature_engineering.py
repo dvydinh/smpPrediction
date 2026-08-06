@@ -97,6 +97,30 @@ def add_engineered_features(df):
 
     df = df.drop(columns=['smp_north_price', 'smp_central_price', 'smp_south_price'], errors='ignore')
 
+    # =========================================================
+    # 5. ROLLING VOLATILITY & MOMENTUM (Blindspot Safe)
+    # =========================================================
+    # All use shift(48) minimum to ensure we only use data available before 08:00 Day D
+    if 'smp_same_cycle_1d' in df.columns:
+        # Price momentum: how much did the price change vs 2 days ago?
+        df['smp_momentum_1d_2d'] = df['smp_same_cycle_1d'] - df['smp_same_cycle_2d']
+        
+        # Price spread North-South (using lagged values, already blindspot-safe)
+        if 'smp_north_same_cycle_1d' in df.columns and 'smp_south_same_cycle_1d' in df.columns:
+            df['smp_spread_ns_1d'] = df['smp_north_same_cycle_1d'] - df['smp_south_same_cycle_1d']
+
+    # Rolling volatility: std of SMP over past 48 cycles (1 day), shifted by 48 for safety
+    if 'smp_system_price' in df.columns:
+        df['smp_rolling_std_1d'] = df['smp_system_price'].shift(48).rolling(48, min_periods=24).std()
+        df['smp_rolling_std_7d'] = df['smp_system_price'].shift(48).rolling(336, min_periods=168).std()
+        # Rolling mean for mean-reversion signal
+        df['smp_rolling_mean_7d'] = df['smp_system_price'].shift(48).rolling(336, min_periods=168).mean()
+        # Deviation from 7-day mean (mean reversion signal)
+        df['smp_dev_from_7d_mean'] = df['smp_same_cycle_1d'] - df['smp_rolling_mean_7d']
+
+    # Weekend/Holiday flag (binary, complements sin/cos encoding)
+    df['is_weekend'] = (df.index.dayofweek >= 5).astype(int)
+
     for col in df.select_dtypes(include=[np.number]).columns:
         if df[col].isna().any(): 
             df[col] = df[col].ffill().bfill()

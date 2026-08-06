@@ -23,6 +23,10 @@ class StackingEnsemble:
     
     def fit(self, X, y):
         tscv = TimeSeriesSplit(n_splits=5)
+        
+        # Log-transform target to handle right-skewed price distribution
+        y_log = np.log1p(y)
+        
         oof_preds = np.zeros((len(X), 3))
         
         base_models = self.get_base_models()
@@ -30,8 +34,8 @@ class StackingEnsemble:
         
         print("Stage 1: Training base models (OOF predictions with TimeSeriesSplit)...")
         for i, (train_idx, val_idx) in enumerate(tscv.split(X)):
-            X_tr, y_tr = X.iloc[train_idx], y.iloc[train_idx]
-            X_va, y_va = X.iloc[val_idx], y.iloc[val_idx]
+            X_tr, y_tr = X.iloc[train_idx], y_log.iloc[train_idx]
+            X_va, y_va = X.iloc[val_idx], y_log.iloc[val_idx]
             
             for j, name in enumerate(model_names):
                 print(f"  Fold {i+1}/5 - Training Base Model: {name}")
@@ -47,7 +51,7 @@ class StackingEnsemble:
         
         valid_idx = np.concatenate([val_idx for _, val_idx in tscv.split(X)])
         meta_X = oof_preds[valid_idx]
-        meta_y = y.iloc[valid_idx]
+        meta_y = y_log.iloc[valid_idx]
         
         print("\nStage 2: Training Meta-Learner (Ridge Regression)...")
         self.meta_learner.fit(meta_X, meta_y)
@@ -56,14 +60,15 @@ class StackingEnsemble:
         for name in model_names:
             print(f"  Training full {name}...")
             model = self.get_base_models()[name]
-            model.fit(X, y)
+            model.fit(X, y_log)
             self.models[name] = model
             
         print("Stacking Ensemble training complete.")
         
     def predict(self, X):
         base_preds = np.column_stack([self.models[name].predict(X) for name in self.models.keys()])
-        return self.meta_learner.predict(base_preds)
+        log_preds = self.meta_learner.predict(base_preds)
+        return np.expm1(log_preds)  # Inverse log-transform back to VND
         
     def save(self):
         os.makedirs(self.output_dir, exist_ok=True)
