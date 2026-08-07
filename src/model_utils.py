@@ -239,7 +239,7 @@ def prepare_training_data(df, feature_cols):
     print(f"Data shape - X: {X.shape} | Y: {Y.shape}")
     return X, Y
 
-def train_and_save_model(df, feature_cols, output_dir="outputs/models", model_name="stacking_ensemble.pkl"):
+def train_and_save_model(df, feature_cols, output_dir="outputs/models", model_name="stacking_ensemble.pkl", use_optuna=False, n_trials=30):
     X, Y = prepare_training_data(df, feature_cols)
     
     train_mask = X.index.year <= 2025 # Combine Train (2021-2024) and Val (2025) into full train set since we use TimeSeriesSplit inside
@@ -248,7 +248,7 @@ def train_and_save_model(df, feature_cols, output_dir="outputs/models", model_na
     print(f"Data for Stacking - Total Train size: {len(X_train)}")
     
     ensemble = StackingEnsemble(output_dir)
-    ensemble.fit(X_train, Y_train)
+    ensemble.fit(X_train, Y_train, use_optuna=use_optuna, n_trials=n_trials)
     ensemble.save()
         
     return ensemble
