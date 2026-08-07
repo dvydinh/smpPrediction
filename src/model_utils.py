@@ -13,11 +13,8 @@ from sklearn.linear_model import Ridge, HuberRegressor
 from sklearn.model_selection import TimeSeriesSplit
 from src.iceemdan_utils import ICEEMDANForecaster
 
-try:
-    from neuralforecast import NeuralForecast
-    from neuralforecast.models import NBEATSx
-except ImportError:
-    pass
+from neuralforecast import NeuralForecast
+from neuralforecast.models import NBEATSx
 
 class NBEATSxWrapper:
     """Wrapper to make NBEATSx compatible with Scikit-learn API"""
