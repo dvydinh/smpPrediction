@@ -13,13 +13,12 @@ class StackingEnsemble:
     def __init__(self, output_dir):
         self.output_dir = output_dir
         self.models = {}
-        self.meta_learner = HuberRegressor(max_iter=1000)
+        self.meta_learner = Ridge(alpha=1.0)
     
     def get_base_models(self):
         return {
             'lgb': lgb.LGBMRegressor(objective='mae', learning_rate=0.005, num_leaves=255, n_estimators=3000, 
-                                     colsample_bytree=0.8, subsample=0.85, subsample_freq=1, 
-                                     min_child_weight=0.01, path_smooth=1, min_child_samples=20, random_state=42),
+                                     colsample_bytree=0.8, min_child_samples=20, random_state=42),
             'xgb': xgb.XGBRegressor(objective='reg:absoluteerror', learning_rate=0.005, max_depth=10, n_estimators=3000, 
                                     colsample_bytree=0.7, subsample=0.8, random_state=42, tree_method='hist', device='cuda'),
             'cb': CatBoostRegressor(loss_function='MAE', learning_rate=0.01, iterations=3000, depth=10, 
@@ -57,7 +56,7 @@ class StackingEnsemble:
             # ICEEMDAN base model (4th column)
             # CRITICAL: decompose ONLY on training target to prevent leakage
             print(f"  Fold {i+1}/5 - Training Base Model: iceemdan")
-            iceemdan_model = ICEEMDANForecaster(n_imfs_max=8)
+            iceemdan_model = ICEEMDANForecaster(n_imfs_max=6)
             iceemdan_model.fit(X_tr, y_tr)
             oof_preds[val_idx, 3] = iceemdan_model.predict(X_va)
         
@@ -77,7 +76,7 @@ class StackingEnsemble:
         
         # Train ICEEMDAN on full dataset
         print("  Training full iceemdan...")
-        self.iceemdan_model = ICEEMDANForecaster(n_imfs_max=8)
+        self.iceemdan_model = ICEEMDANForecaster(n_imfs_max=6)
         self.iceemdan_model.fit(X, y_target)
         self.models['iceemdan'] = self.iceemdan_model
             
