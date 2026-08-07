@@ -67,6 +67,7 @@ class NBEATSxWrapper:
 class StackingEnsemble:
     def __init__(self, output_dir):
         self.output_dir = output_dir
+        os.makedirs(self.output_dir, exist_ok=True)
         self.models = {}
         self.meta_learner = lgb.LGBMRegressor(objective='mae', n_estimators=500, learning_rate=0.01, random_state=42, verbose=-1)
     
