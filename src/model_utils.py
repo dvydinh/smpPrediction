@@ -41,7 +41,8 @@ class NBEATSxWrapper:
                         hist_exog_list=self.exog_cols,
                         max_steps=self.max_steps,
                         scaler_type='standard',
-                        enable_progress_bar=False)
+                        enable_progress_bar=False,
+                        devices=1)
         self.nf = NeuralForecast(models=[model], freq='30min')
         
         # Train on the entire sequence
