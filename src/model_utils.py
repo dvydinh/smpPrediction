@@ -196,7 +196,9 @@ class StackingEnsemble:
         meta_y = y_target.iloc[valid_idx]
         
         print("\nStage 2: Training Meta-Learner (LightGBM MAE Booster)...")
-        self.meta_learner.fit(meta_X, meta_y)
+        # Exclude nbeats (col 3) from meta-learner since it is 0 during OOF
+        meta_X_trees_ice = meta_X[:, [0, 1, 2, 4]]
+        self.meta_learner.fit(meta_X_trees_ice, meta_y)
         
         print("\nStage 3: Training base models on FULL dataset...")
         for name in model_names:
@@ -215,11 +217,20 @@ class StackingEnsemble:
         
     def predict(self, X):
         preds_list = []
+        # models order: lgb, xgb, cb, nbeats, iceemdan
         for name, model in self.models.items():
             preds_list.append(model.predict(X))
         base_preds = np.column_stack(preds_list)
-        preds = self.meta_learner.predict(base_preds)
-        return preds
+        
+        # Exclude nbeats (col 3) from meta-learner to match training
+        base_preds_trees_ice = base_preds[:, [0, 1, 2, 4]]
+        meta_preds = self.meta_learner.predict(base_preds_trees_ice)
+        
+        # Blend meta_learner (80%) with NBEATSx (20%)
+        nbeats_preds = base_preds[:, 3]
+        final_preds = 0.8 * meta_preds + 0.2 * nbeats_preds
+        
+        return final_preds
         
     def save(self):
         os.makedirs(self.output_dir, exist_ok=True)
