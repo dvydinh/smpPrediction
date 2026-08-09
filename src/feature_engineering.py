@@ -95,6 +95,12 @@ def add_engineered_features(df):
         thermal_cap = df['disp_total_installed_mw'] - hydro_cap - solar_cap - wind_cap
         df['thermal_margin_proxy'] = thermal_cap - df['residual_load_proxy']
 
+    if 'shortwave_radiation_hcmc' in df.columns and 'load_same_cycle_1d' in df.columns:
+        df['load_to_rad_ratio'] = df['load_same_cycle_1d'] / (df['shortwave_radiation_hcmc'] + 1.0)
+        
+    if 'wind_speed_hcmc' in df.columns and 'load_same_cycle_1d' in df.columns:
+        df['load_to_wind_ratio'] = df['load_same_cycle_1d'] / (df['wind_speed_hcmc'] + 1.0)
+
     df = df.drop(columns=['smp_north_price', 'smp_central_price', 'smp_south_price'], errors='ignore')
 
     # =========================================================
