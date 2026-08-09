@@ -252,7 +252,7 @@ def prepare_training_data(df, feature_cols):
 def train_and_save_model(df, feature_cols, output_dir="outputs/models", model_name="stacking_ensemble.pkl", use_optuna=False, n_trials=30):
     X, Y = prepare_training_data(df, feature_cols)
     
-    train_mask = X.index.year <= 2025 # Combine Train (2021-2024) and Val (2025) into full train set since we use TimeSeriesSplit inside
+    train_mask = (X.index.year >= 2023) & (X.index.year <= 2025) # Use only 2023-2025 post-covid new normal data
     X_train, Y_train = X[train_mask], Y[train_mask]
     
     print(f"Data for Stacking - Total Train size: {len(X_train)}")
