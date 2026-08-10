@@ -126,6 +126,30 @@ def add_engineered_features(df):
 
     # Weekend/Holiday flag (binary, complements sin/cos encoding)
     df['is_weekend'] = (df.index.dayofweek >= 5).astype(int)
+    
+    # 1. Regime Indicator (Post-Covid)
+    df['is_post_covid'] = (df.index.year >= 2023).astype(int)
+    
+    # 2. Vietnam Public Holidays (Hardcoded for 2021-2026)
+    solar_holidays = ['01-01', '04-30', '05-01', '09-02']
+    df['is_holiday'] = df.index.strftime('%m-%d').isin(solar_holidays).astype(int)
+    
+    # Lunar holidays (Tet & Hung King)
+    lunar_holiday_ranges = [
+        ('2021-02-10', '2021-02-16'), ('2021-04-21', '2021-04-21'),
+        ('2022-01-31', '2022-02-04'), ('2022-04-10', '2022-04-10'),
+        ('2023-01-20', '2023-01-26'), ('2023-04-29', '2023-04-29'),
+        ('2024-02-08', '2024-02-14'), ('2024-04-18', '2024-04-18'),
+        ('2025-01-27', '2025-02-02'), ('2025-04-07', '2025-04-07'),
+        ('2026-02-15', '2026-02-21'), ('2026-04-26', '2026-04-26')
+    ]
+    for start, end in lunar_holiday_ranges:
+        mask = (df.index >= start) & (df.index <= f"{end} 23:59:59")
+        df.loc[mask, 'is_holiday'] = 1
+        
+    # 3. Scarcity Proxy (Simulating plant outage)
+    if 'smp_same_cycle_1d' in df.columns:
+        df['is_scarcity_lag_1d'] = (df['smp_same_cycle_1d'] > 1200).astype(int)
 
     # =========================================================
     # 6. FUEL PRICE FEATURES (Blindspot Safe)
