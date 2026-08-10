@@ -147,9 +147,6 @@ def add_engineered_features(df):
         mask = (df.index >= start) & (df.index <= f"{end} 23:59:59")
         df.loc[mask, 'is_holiday'] = 1
         
-    # 3. Scarcity Proxy (Simulating plant outage)
-    if 'smp_same_cycle_1d' in df.columns:
-        df['is_scarcity_lag_1d'] = (df['smp_same_cycle_1d'] > 1200).astype(int)
 
     # =========================================================
     # 6. FUEL PRICE FEATURES (Blindspot Safe)
