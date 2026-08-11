@@ -146,7 +146,17 @@ def add_engineered_features(df):
     for start, end in lunar_holiday_ranges:
         mask = (df.index >= start) & (df.index <= f"{end} 23:59:59")
         df.loc[mask, 'is_holiday'] = 1
-        
+
+    # Holiday-Load Interaction
+    if 'load_same_cycle_1d' in df.columns:
+        df['holiday_load_impact'] = df['is_holiday'] * df['load_same_cycle_1d']
+
+    # 3. Heatwave & Coldwave Stress
+    if 'temperature_2m_hn' in df.columns:
+        df['heat_stress_hn'] = (df['temperature_2m_hn'] - 35).clip(lower=0)
+        df['cold_stress_hn'] = (15 - df['temperature_2m_hn']).clip(lower=0)
+    if 'temperature_2m_hcmc' in df.columns:
+        df['heat_stress_hcmc'] = (df['temperature_2m_hcmc'] - 35).clip(lower=0)        
 
     # =========================================================
     # 6. FUEL PRICE FEATURES (Blindspot Safe)

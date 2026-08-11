@@ -106,6 +106,16 @@ The architecture was upgraded from a standalone LightGBM framework to a hybrid e
 - **Results**: WMAPE (clean): 11.94%. MAE (clean): 169.26 VNĐ. RMSE (clean): 231.13 VNĐ.
 - **Analysis**: **NEW RECORD!** Running the exact same Trial 8 architecture on GPU yielded significantly better results (dropping from 12.63% to 11.94%). This is likely due to structural differences in how GPU implementations construct trees (e.g., histogram binning differences) serving as a beneficial regularizer.
 
+### Trial 13: Physics Features Integration
+- **Strategy**: Kept the exact Trial 8.1 architecture (Ridge meta-learner, full 5-year data) but introduced 2 new physics-informed features: `load_to_rad_ratio` (Load / Solar Radiation) and `load_to_wind_ratio` (Load / Wind Speed) to help tree models better identify grid scarcity conditions.
+- **Results**: WMAPE (clean): 11.71%. MAE (clean): 165.96 VNĐ. RMSE (clean): 227.31 VNĐ.
+- **Analysis**: **CURRENT RECORD (BEST SOTA)!** Adding the physical ratios allowed the models to slice the data more efficiently when solar/wind generation drops during high load periods, reducing MAE by nearly 4 VNĐ without adding complex model bloat.
+
+### Trial 14: Data-Centric Regime & Holiday Flags
+- **Strategy**: Implemented true data-centric solutions without proxying the target. Added `is_post_covid` (year >= 2023) to allow tree algorithms to split logic between historical anomalies and the new normal, while retaining all data volume. Added `is_holiday` incorporating exact Vietnam solar/lunar public holidays (Tet, 30/4, Hung King).
+- **Results**: WMAPE (clean): 11.33%. MAE (clean): 160.69 VNĐ. RMSE (clean): 219.66 VNĐ.
+- **Analysis**: **NEW ALL-TIME RECORD!** Successfully breached the 165 barrier. The regime flag proved that tree models can automatically handle shifting distributions if explicitly labeled, negating the need to cut 40% of the dataset. Vietnam holiday inclusion efficiently handled extreme demand-drop price crashes. We are ~10 VNĐ away from the final target (150).
+
 ## 6. Inference Procedure (Production)
 
 The production inference script (`inference_production.py`) is designed for fully automated daily execution at 08:00 AM.
