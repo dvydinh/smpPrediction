@@ -116,7 +116,10 @@ The architecture was upgraded from a standalone LightGBM framework to a hybrid e
 - **Results**: WMAPE (clean): 11.33%. MAE (clean): 160.69 VNĐ. RMSE (clean): 219.66 VNĐ.
 - **Analysis**: **NEW ALL-TIME RECORD!** Successfully breached the 165 barrier. The regime flag proved that tree models can automatically handle shifting distributions if explicitly labeled, negating the need to cut 40% of the dataset. Vietnam holiday inclusion efficiently handled extreme demand-drop price crashes. We are ~10 VNĐ away from the final target (150).
 
-## 6. Inference Procedure (Production)
+### Trial 15: Overfitting & Reversion
+- **Strategy**: Attempted to scale model capacity to extremes (`n_estimators=5000`, `num_leaves=380`) alongside the new heatwave proxy features.
+- **Results**: WMAPE (clean): 11.95%. MAE (clean): 169.42 VNĐ. RMSE (clean): 229.56 VNĐ.
+- **Analysis**: **DEGRADATION!** The extreme capacity scaling caused severe overfitting on the training data. The tree models memorized the noise, which broke the meta-learner's generalization. We have immediately reverted the hyperparameter scaling back to Trial 14 settings (`n_estimators=3000`, `num_leaves=255`), but kept the physical heatwave features.
 
 The production inference script (`inference_production.py`) is designed for fully automated daily execution at 08:00 AM.
 
