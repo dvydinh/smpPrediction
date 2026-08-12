@@ -109,13 +109,69 @@ def prepare_training_data(df, feature_cols):
 def train_and_save_model(df, feature_cols, output_dir="outputs/models", model_name="stacking_ensemble.pkl"):
     X, Y = prepare_training_data(df, feature_cols)
     
-    train_mask = X.index.year <= 2025 # Combine Train (2021-2024) and Val (2025) into full train set since we use TimeSeriesSplit inside
+    train_mask = X.index.year <= 2025
     X_train, Y_train = X[train_mask], Y[train_mask]
     
-    print(f"Data for Stacking - Total Train size: {len(X_train)}")
+    # ==========================================================
+    # Phase 0: Scout LGBM for Auto Feature Selection
+    # ==========================================================
+    print("=" * 60)
+    print("Phase 0: Scout LGBM - Auto Feature Selection")
+    print("=" * 60)
+    scout = lgb.LGBMRegressor(
+        objective='mae', learning_rate=0.05, num_leaves=127,
+        n_estimators=500, colsample_bytree=0.8, random_state=42
+    )
+    scout.fit(X_train, Y_train)
+    
+    importances = pd.Series(scout.feature_importances_, index=feature_cols)
+    importances_sorted = importances.sort_values(ascending=False)
+    
+    # Print full ranking
+    print("\n--- Full Feature Importance Ranking ---")
+    for rank, (feat, score) in enumerate(importances_sorted.items(), 1):
+        print(f"  {rank:3d}. {feat:40s} {score:10.0f}")
+    
+    # Protected features (always keep regardless of importance)
+    protected = {
+        # Cyclical time encoding
+        'sin_hour', 'cos_hour', 'sin_dow', 'cos_dow', 'sin_month', 'cos_month',
+        # Core price & load lags (weekly cycle)
+        'smp_same_cycle_1d', 'smp_same_cycle_2d', 'smp_same_cycle_7d',
+        'load_same_cycle_1d', 'load_same_cycle_2d', 'load_same_cycle_7d',
+        # Calendar & regime
+        'is_weekend', 'is_holiday', 'is_post_covid',
+        # Morning & daily aggregates (structural)
+        'morning_smp_mean', 'morning_load_mean',
+        'prev_full_smp_mean', 'prev_full_gate_prob',
+        # Volatility & mean-reversion (market dynamics)
+        'smp_rolling_std_1d', 'smp_rolling_mean_7d',
+        # Core physics
+        'residual_load_proxy', 'solar_gen_proxy',
+    }
+    
+    # Cut bottom 20% by importance (unless protected)
+    threshold = importances.quantile(0.20)
+    selected = [f for f in feature_cols if f in protected or importances[f] >= threshold]
+    removed = [f for f in feature_cols if f not in selected]
+    
+    print(f"\n--- Selection Summary ---")
+    print(f"  Threshold (20th pct): {threshold:.0f}")
+    print(f"  Total: {len(feature_cols)} -> Selected: {len(selected)} | Removed: {len(removed)}")
+    if removed:
+        print(f"  Removed: {removed}")
+    print("=" * 60)
+    
+    # ==========================================================
+    # Phase 1-3: Full Stacking Ensemble on selected features
+    # ==========================================================
+    X_train_sel = X_train[selected]
+    
+    print(f"\nData for Stacking - Train: {len(X_train_sel)} x {X_train_sel.shape[1]} features")
     
     ensemble = StackingEnsemble(output_dir)
-    ensemble.fit(X_train, Y_train)
+    ensemble.selected_features = selected
+    ensemble.fit(X_train_sel, Y_train)
     ensemble.save()
         
-    return ensemble
+    return ensemble, selected
