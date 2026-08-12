@@ -152,18 +152,23 @@ def train_and_save_model(df, feature_cols, output_dir="outputs/models", model_na
     
     # Cut bottom 20% by importance (unless protected)
     threshold = importances.quantile(0.20)
-    selected = [f for f in feature_cols if f in protected or importances[f] >= threshold]
-    removed = [f for f in feature_cols if f not in selected]
+    selected_for_analysis = [f for f in feature_cols if f in protected or importances[f] >= threshold]
+    removed = [f for f in feature_cols if f not in selected_for_analysis]
     
-    print(f"\n--- Selection Summary ---")
+    print(f"\n--- Selection Summary (ANALYSIS ONLY) ---")
     print(f"  Threshold (20th pct): {threshold:.0f}")
-    print(f"  Total: {len(feature_cols)} -> Selected: {len(selected)} | Removed: {len(removed)}")
+    print(f"  Total: {len(feature_cols)} -> Would Select: {len(selected_for_analysis)} | Would Remove: {len(removed)}")
     if removed:
-        print(f"  Removed: {removed}")
+        print(f"  Would Remove: {removed}")
     print("=" * 60)
     
+    # CRITICAL FIX (Trial 17 Analysis): 
+    # Dropping features based on LGBM's perspective cripples XGBoost and CatBoost.
+    # We must train the ensemble on ALL features to preserve model diversity.
+    selected = feature_cols
+    
     # ==========================================================
-    # Phase 1-3: Full Stacking Ensemble on selected features
+    # Phase 1-3: Full Stacking Ensemble on ALL features
     # ==========================================================
     X_train_sel = X_train[selected]
     

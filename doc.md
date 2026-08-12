@@ -126,6 +126,11 @@ The architecture was upgraded from a standalone LightGBM framework to a hybrid e
 - **Results**: WMAPE (clean): 11.39%. MAE (clean): 161.51 VNĐ. RMSE (clean): 219.12 VNĐ.
 - **Analysis**: Marginal degradation vs Trial 14 (160.69 -> 161.51). The rolling temperature and load momentum features did not improve accuracy. Trial 14 remains SOTA.
 
+### Trial 17: Auto Feature Selection via LGBM Scout
+- **Strategy**: Reverted to Trial 14 feature engineering. Implemented a Phase 0 "LGBM Scout" to measure feature importance and automatically drop the bottom 20% of features before training the full Stacking Ensemble. Protected core features from deletion.
+- **Results**: WMAPE (clean): 12.09%. MAE (clean): 171.36 VNĐ. RMSE (clean): 233.97 VNĐ.
+- **Analysis**: **SEVERE DEGRADATION!** Dropping features based purely on LGBM's perspective crippled the other ensemble members (XGBoost, CatBoost, ICEEMDAN). In an ensemble, features that are useless to one model may be highly valuable to another. Filtering globally using a single base model destroys diversity. Trial 14 remains SOTA.
+
 ### Workflow:
 1. **Model Loading**: Deserializes `stacking_ensemble.pkl`.
 2. **Data Ingestion**: Loads historical CSVs and strictly truncates the dataset at 07:30 Day D.
