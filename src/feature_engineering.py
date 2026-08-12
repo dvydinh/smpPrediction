@@ -111,10 +111,7 @@ def add_engineered_features(df):
         # Price momentum: how much did the price change vs 2 days ago?
         df['smp_momentum_1d_2d'] = df['smp_same_cycle_1d'] - df['smp_same_cycle_2d']
         
-    if 'load_same_cycle_1d' in df.columns:
-        # Load momentum: how much did the load change vs 2 days ago?
-        df['load_momentum_1d_2d'] = df['load_same_cycle_1d'] - df['load_same_cycle_2d']
-        
+
         # Price spread North-South (using lagged values, already blindspot-safe)
         if 'smp_north_same_cycle_1d' in df.columns and 'smp_south_same_cycle_1d' in df.columns:
             df['smp_spread_ns_1d'] = df['smp_north_same_cycle_1d'] - df['smp_south_same_cycle_1d']
@@ -151,14 +148,16 @@ def add_engineered_features(df):
         mask = (df.index >= start) & (df.index <= f"{end} 23:59:59")
         df.loc[mask, 'is_holiday'] = 1
 
-    # =========================================================
-    # HEAT ACCUMULATION (Statistical, Non-Proxy)
-    # =========================================================
-    # We use shift(48) because we need the temperatures of the previous day to be fully known by 08:00
+    # Holiday-Load Interaction
+    if 'load_same_cycle_1d' in df.columns:
+        df['holiday_load_impact'] = df['is_holiday'] * df['load_same_cycle_1d']
+
+    # Heatwave & Coldwave Stress
     if 'temperature_2m_hn' in df.columns:
-        df['temp_hn_rolling_24h'] = df['temperature_2m_hn'].shift(48).rolling(48, min_periods=24).mean()
+        df['heat_stress_hn'] = (df['temperature_2m_hn'] - 35).clip(lower=0)
+        df['cold_stress_hn'] = (15 - df['temperature_2m_hn']).clip(lower=0)
     if 'temperature_2m_hcmc' in df.columns:
-        df['temp_hcmc_rolling_24h'] = df['temperature_2m_hcmc'].shift(48).rolling(48, min_periods=24).mean()
+        df['heat_stress_hcmc'] = (df['temperature_2m_hcmc'] - 35).clip(lower=0)
 
 
     # =========================================================

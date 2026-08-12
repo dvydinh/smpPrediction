@@ -121,7 +121,10 @@ The architecture was upgraded from a standalone LightGBM framework to a hybrid e
 - **Results**: WMAPE (clean): 11.95%. MAE (clean): 169.42 VNĐ. RMSE (clean): 229.56 VNĐ.
 - **Analysis**: **DEGRADATION!** The extreme capacity scaling caused severe overfitting on the training data. The tree models memorized the noise, which broke the meta-learner's generalization. We have immediately reverted the hyperparameter scaling back to Trial 14 settings (`n_estimators=3000`, `num_leaves=255`), but kept the physical heatwave features.
 
-The production inference script (`inference_production.py`) is designed for fully automated daily execution at 08:00 AM.
+### Trial 16: Statistical Momentum & Heat Accumulation (No Proxies)
+- **Strategy**: Strictly adhering to the "no subjective proxies" rule. Replaced the hardcoded heatwave threshold with `temp_rolling_mean_24h` to capture heat accumulation naturally. Replaced holiday impact proxy with a statistical `load_momentum_1d_2d` to capture the acceleration of power demand. Model capacity is kept at safe limits (`n_estimators=3000`).
+- **Results**: WMAPE (clean): 11.39%. MAE (clean): 161.51 VNĐ. RMSE (clean): 219.12 VNĐ.
+- **Analysis**: Marginal degradation vs Trial 14 (160.69 -> 161.51). The rolling temperature and load momentum features did not improve accuracy. Trial 14 remains SOTA.
 
 ### Workflow:
 1. **Model Loading**: Deserializes `stacking_ensemble.pkl`.

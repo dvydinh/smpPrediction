@@ -54,8 +54,16 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
             importances = pd.Series(model.models['lgb'].feature_importances_, index=feature_cols)
         else:
             importances = pd.Series(model.feature_importance(importance_type='gain'), index=feature_cols)
+        
+        # Print ALL feature importances for analysis
+        importances_sorted = importances.sort_values(ascending=False)
+        print("\n=== FULL FEATURE IMPORTANCE (Gain) ===")
+        for rank, (feat, score) in enumerate(importances_sorted.items(), 1):
+            print(f"  {rank:3d}. {feat:40s} {score:12.1f}")
+        print(f"  Total features: {len(importances_sorted)}")
+        print("=" * 50)
             
-        importances = importances.sort_values(ascending=False).head(20)
+        importances = importances_sorted.head(20)
         importances.sort_values().plot(kind='barh', color='#3498db')
         plt.title('Top 20 Feature Importances (Gain)', fontsize=14, pad=15)
         plt.xlabel('Gain', fontsize=12)
