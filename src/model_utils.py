@@ -147,7 +147,7 @@ def train_and_save_model(df, feature_cols, output_dir="outputs/models", model_na
         # Volatility & mean-reversion (market dynamics)
         'smp_rolling_std_1d', 'smp_rolling_mean_7d',
         # Core physics
-        'residual_load_proxy', 'solar_gen_proxy',
+        'residual_load_proxy',
     }
     
     # Cut bottom 20% by importance (unless protected)
