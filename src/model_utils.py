@@ -66,6 +66,19 @@ class StackingEnsemble:
         print("\nStage 2: Training Meta-Learner (Ridge Regression)...")
         self.meta_learner.fit(meta_X, meta_y)
         
+        print("\nStage 2b: Training Residual Corrector (LightGBM)...")
+        # Calculate residuals on the out-of-fold predictions
+        meta_preds = self.meta_learner.predict(meta_X)
+        residuals = meta_y - meta_preds
+        
+        # Train a fast, shallow LGBM to predict the residuals
+        # Using X.iloc[valid_idx] which perfectly matches meta_y
+        self.residual_corrector = lgb.LGBMRegressor(
+            objective='mae', learning_rate=0.02, num_leaves=31, 
+            n_estimators=300, colsample_bytree=0.8, random_state=42
+        )
+        self.residual_corrector.fit(X.iloc[valid_idx], residuals)
+        
         print("\nStage 3: Training base models on FULL dataset...")
         for name in model_names:
             print(f"  Training full {name}...")
@@ -86,7 +99,15 @@ class StackingEnsemble:
         for name, model in self.models.items():
             preds_list.append(model.predict(X))
         base_preds = np.column_stack(preds_list)
+        
+        # 1. Base Meta-Learner Prediction
         preds = self.meta_learner.predict(base_preds)
+        
+        # 2. Residual Correction
+        if hasattr(self, 'residual_corrector'):
+            res_preds = self.residual_corrector.predict(X)
+            preds = preds + res_preds
+            
         return preds
         
     def save(self):
