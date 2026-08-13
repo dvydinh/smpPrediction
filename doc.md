@@ -136,6 +136,13 @@ The architecture was upgraded from a standalone LightGBM framework to a hybrid e
 - **Results**: WMAPE (clean): 16.47%. MAE (clean): 233.55 VNĐ. RMSE (clean): 286.17 VNĐ.
 - **Analysis**: **DISASTROUS OVERFITTING!** Predicting financial time-series errors is extremely noisy. The residual corrector simply memorized the training noise and completely destabilized the predictions on the test set, nearly doubling the variance. Residual correction is NOT viable for this highly volatile dataset. Trial 14 remains SOTA and the undisputed MVP.
 
+### Trial 19: Positive Stacking & Structural Regularization
+- **Strategy**: 
+  1. Converted `Ridge` meta-learner to Non-Negative Least Squares (`positive=True`) to strictly forbid negative weights (which cause out-of-distribution extrapolation errors).
+  2. Reduced `CatBoost` depth from 10 to 7 to prevent massive tree memorization (1024 leaves -> 128 leaves).
+  3. Reduced `XGBoost` max_depth from 10 to 8.
+- **Expected Impact**: Increased generalization stability on the 2026 unseen test set.
+
 ### Workflow:
 1. **Model Loading**: Deserializes `stacking_ensemble.pkl`.
 2. **Data Ingestion**: Loads historical CSVs and strictly truncates the dataset at 07:30 Day D.
