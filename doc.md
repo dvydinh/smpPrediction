@@ -131,6 +131,11 @@ The architecture was upgraded from a standalone LightGBM framework to a hybrid e
 - **Results**: WMAPE (clean): 12.09%. MAE (clean): 171.36 VNĐ. RMSE (clean): 233.97 VNĐ.
 - **Analysis**: **SEVERE DEGRADATION!** Dropping features based purely on LGBM's perspective crippled the other ensemble members (XGBoost, CatBoost, ICEEMDAN). In an ensemble, features that are useless to one model may be highly valuable to another. Filtering globally using a single base model destroys diversity. Trial 14 remains SOTA.
 
+### Trial 18: Residual Correction
+- **Strategy**: Trained a secondary LightGBM model on the out-of-fold residuals (errors) of the meta-learner to correct its bias. Added this correction to the final prediction.
+- **Results**: WMAPE (clean): 16.47%. MAE (clean): 233.55 VNĐ. RMSE (clean): 286.17 VNĐ.
+- **Analysis**: **DISASTROUS OVERFITTING!** Predicting financial time-series errors is extremely noisy. The residual corrector simply memorized the training noise and completely destabilized the predictions on the test set, nearly doubling the variance. Residual correction is NOT viable for this highly volatile dataset. Trial 14 remains SOTA and the undisputed MVP.
+
 ### Workflow:
 1. **Model Loading**: Deserializes `stacking_ensemble.pkl`.
 2. **Data Ingestion**: Loads historical CSVs and strictly truncates the dataset at 07:30 Day D.
