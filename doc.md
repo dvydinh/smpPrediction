@@ -142,6 +142,10 @@ The architecture was upgraded from a standalone LightGBM framework to a hybrid e
   2. Reduced `CatBoost` depth from 10 to 7 to prevent massive tree memorization (1024 leaves -> 128 leaves).
   3. Reduced `XGBoost` max_depth from 10 to 8.
 - **Expected Impact**: Increased generalization stability on the 2026 unseen test set.
+- **Results**: WMAPE (clean): 15.23%. MAE (clean): 215.93 VNĐ. RMSE (clean): 276.72 VNĐ.
+- **Analysis**: **MASSIVE DEGRADATION!** 
+  1. Constraining the meta-learner to positive weights destroyed its ability to neutralize systematic over-predictions from base models. Negative weights are mathematically necessary to balance the ensemble.
+  2. The shallow trees severely underfitted. Depth 10 was not memorizing noise; it was capturing highly complex, legitimate non-linear interactions in the electricity market (e.g., Load > X AND Temp > Y AND Hour == Z). Trial 14 remains SOTA.
 
 ### Workflow:
 1. **Model Loading**: Deserializes `stacking_ensemble.pkl`.

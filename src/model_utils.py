@@ -13,14 +13,14 @@ class StackingEnsemble:
     def __init__(self, output_dir):
         self.output_dir = output_dir
         self.models = {}
-        self.meta_learner = Ridge(alpha=1.0, positive=True)
+        self.meta_learner = Ridge(alpha=1.0)
     def get_base_models(self):
         return {
             'lgb': lgb.LGBMRegressor(objective='mae', learning_rate=0.005, num_leaves=255, n_estimators=3000, 
                                      colsample_bytree=0.8, min_child_samples=20, random_state=42),
-            'xgb': xgb.XGBRegressor(objective='reg:absoluteerror', learning_rate=0.005, max_depth=8, n_estimators=3000, 
+            'xgb': xgb.XGBRegressor(objective='reg:absoluteerror', learning_rate=0.005, max_depth=10, n_estimators=3000, 
                                     colsample_bytree=0.7, subsample=0.8, random_state=42, tree_method='hist', device='cuda'),
-            'cb': CatBoostRegressor(loss_function='MAE', learning_rate=0.01, iterations=3000, depth=7, 
+            'cb': CatBoostRegressor(loss_function='MAE', learning_rate=0.01, iterations=3000, depth=10, 
                                     l2_leaf_reg=3, random_state=42, verbose=False, task_type='GPU')
         }
     
