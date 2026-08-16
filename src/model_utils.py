@@ -30,10 +30,11 @@ class StackingEnsemble:
         # Use raw target (log1p caused massive WMAPE degradation in Trial 7)
         y_target = y.copy()
         
-        oof_preds = np.zeros((len(X), 4))  # lgb, xgb, cb, iceemdan
-        
         base_models = self.get_base_models()
         model_names = list(base_models.keys())
+        n_models = len(model_names)
+        
+        oof_preds = np.zeros((len(X), n_models))  # lgb, xgb, cb (Pure Tree Stacking)
         
         print("Stage 1: Training base models (OOF predictions with TimeSeriesSplit)...")
         for i, (train_idx, val_idx) in enumerate(tscv.split(X)):
@@ -51,13 +52,6 @@ class StackingEnsemble:
                     model.fit(X_tr, y_tr, eval_set=(X_va, y_va), early_stopping_rounds=30, verbose=False)
                 
                 oof_preds[val_idx, j] = model.predict(X_va)
-            
-            # ICEEMDAN base model (4th column)
-            # CRITICAL: decompose ONLY on training target to prevent leakage
-            print(f"  Fold {i+1}/5 - Training Base Model: iceemdan")
-            iceemdan_model = ICEEMDANForecaster(n_imfs_max=6)
-            iceemdan_model.fit(X_tr, y_tr)
-            oof_preds[val_idx, 3] = iceemdan_model.predict(X_va)
         
         valid_idx = np.concatenate([val_idx for _, val_idx in tscv.split(X)])
         meta_X = oof_preds[valid_idx]
@@ -72,12 +66,6 @@ class StackingEnsemble:
             model = self.get_base_models()[name]
             model.fit(X, y_target)
             self.models[name] = model
-        
-        # Train ICEEMDAN on full dataset
-        print("  Training full iceemdan...")
-        self.iceemdan_model = ICEEMDANForecaster(n_imfs_max=6)
-        self.iceemdan_model.fit(X, y_target)
-        self.models['iceemdan'] = self.iceemdan_model
             
         print("Stacking Ensemble training complete.")
         
