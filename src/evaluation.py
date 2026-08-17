@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import json
 from sklearn.metrics import mean_squared_error, mean_absolute_error, mean_absolute_percentage_error
 from pathlib import Path
 
@@ -16,7 +17,7 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
     X_test = df_test[feature_cols]
     Y_test = df_test['smp_system_price'].values
     
-    Y_pred = model.predict(X_test)
+    Y_pred = np.clip(model.predict(X_test), 0.0, 1778.6)
     df_test['pred'] = Y_pred
     
     if output_dir:
@@ -25,8 +26,10 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
     # Full Metrics
     full_rmse = np.sqrt(mean_squared_error(Y_test, Y_pred))
     full_mae = mean_absolute_error(Y_test, Y_pred)
-    
-    print(f"Overall test metrics - RMSE: {full_rmse:.2f} | MAE: {full_mae:.2f}")
+    full_denom = np.abs(Y_test).sum()
+    full_wmape = 100 * np.sum(np.abs(Y_test - Y_pred)) / full_denom if full_denom > 0 else np.nan
+
+    print(f"Overall test metrics - RMSE: {full_rmse:.2f} | MAE: {full_mae:.2f} | WMAPE: {full_wmape:.2f}%")
     
     # Clean Metrics (exclude outliers: price <= 500 or >= 2500)
     clean_mask = (Y_test > 500) & (Y_test < 2500)
@@ -45,6 +48,15 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
         print(f"RMSE (clean): {rmse_clean:.2f} VND")
         print(f"MAPE (clean): {mape_clean:.2f}%")
         print(f"WMAPE (clean): {wmape_clean:.2f}%")
+        target_met = wmape_clean < 10.0 and mae_clean < 150.0
+        print(f"Target met: {target_met}")
+
+        if 'smp_same_cycle_1d' in df_test.columns:
+            baseline = np.clip(df_test['smp_same_cycle_1d'].to_numpy(), 0.0, 1778.6)
+            baseline_clean = baseline[clean_mask]
+            baseline_mae = mean_absolute_error(y_true_clean, baseline_clean)
+            baseline_wmape = 100 * np.sum(np.abs(y_true_clean - baseline_clean)) / denom
+            print(f"Seasonal baseline - MAE: {baseline_mae:.2f} | WMAPE: {baseline_wmape:.2f}%")
     
     # Visualizations
     if output_dir:
@@ -152,9 +164,31 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
         with open(Path(output_dir) / 'metrics.txt', 'w') as f:
             f.write(f'RMSE (all): {full_rmse:.2f}\n')
             f.write(f'MAE (all): {full_mae:.2f}\n')
+            f.write(f'WMAPE (all): {full_wmape:.2f}%\n')
             if len(y_true_clean) > 0:
                 f.write(f'MAE (clean): {mae_clean:.2f}\n')
                 f.write(f'RMSE (clean): {rmse_clean:.2f}\n')
                 f.write(f'MAPE (clean): {mape_clean:.2f}%\n')
                 f.write(f'WMAPE (clean): {wmape_clean:.2f}%\n')
                 f.write(f'Valid samples: {len(y_true_clean)} / {len(Y_test)}\n')
+                f.write(f'Target met: {target_met}\n')
+                if 'smp_same_cycle_1d' in df_test.columns:
+                    f.write(f'Baseline MAE (clean): {baseline_mae:.2f}\n')
+                    f.write(f'Baseline WMAPE (clean): {baseline_wmape:.2f}%\n')
+
+        manifest = {
+            'selected_feature_count': len(feature_cols),
+            'base_models': getattr(model, 'model_order_', []),
+            'meta_alpha': float(getattr(getattr(model, 'meta_learner', None), 'alpha_', np.nan)),
+            'meta_coefficients': {
+                name: float(weight)
+                for name, weight in zip(
+                    getattr(model, 'model_order_', []),
+                    getattr(getattr(model, 'meta_learner', None), 'coef_', []),
+                )
+            },
+            'cycle_bias': getattr(model, 'cycle_bias_', np.zeros(48)).tolist(),
+            'base_selection_scores': getattr(model, 'base_selection_scores_', {}),
+        }
+        with open(Path(output_dir) / 'model_manifest.json', 'w') as f:
+            json.dump(manifest, f, indent=2)

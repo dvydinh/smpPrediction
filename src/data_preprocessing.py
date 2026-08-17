@@ -21,14 +21,13 @@ def load_and_preprocess_data(DATA_ROOT):
     MARKET_DIR = DATA_ROOT / 'market'
     HYDRO_DIR  = DATA_ROOT / 'hydro'
     EXOG_DIR   = DATA_ROOT / 'exogenous'
-    
-    master_idx = pd.date_range('2021-01-01', '2026-06-19 23:30', freq='30min')
-    df = pd.DataFrame(index=master_idx)
-    df.index.name = 'datetime'
 
     smp = pd.read_csv(MARKET_DIR / 'smp_prices_nsmo.csv')
     smp['datetime'] = pd.to_datetime(smp['datetime'])
     smp = smp.sort_values('datetime').drop_duplicates('datetime').set_index('datetime')
+    master_idx = pd.date_range(smp.index.min(), smp.index.max(), freq='30min')
+    df = pd.DataFrame(index=master_idx)
+    df.index.name = 'datetime'
     for col in ['smp_system_price', 'smp_north_price', 'smp_central_price', 'smp_south_price']:
         df[col] = smp[col]
     df['cycle_id'] = df.index.hour * 2 + df.index.minute // 30
@@ -106,7 +105,6 @@ def load_and_preprocess_data(DATA_ROOT):
         if not df[col].isna().any(): continue
         if df[col].isna().any(): df[col] = df[col].fillna(df[col].shift(336))
         if df[col].isna().any(): df[col] = df[col].ffill()
-        if df[col].isna().any(): df[col] = df[col].bfill()
 
     print(f"Preprocessing complete. Shape: {df.shape}")
     return df

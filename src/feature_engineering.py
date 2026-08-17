@@ -32,12 +32,21 @@ def add_engineered_features(df):
         if col_name not in df.columns: return
         df[f'{new_col_prefix}_1d'] = np.where(cycle_id <= 15, df[col_name].shift(48), df[col_name].shift(96))
         df[f'{new_col_prefix}_2d'] = df[col_name].shift(96)
+        df[f'{new_col_prefix}_3d'] = df[col_name].shift(144)
         df[f'{new_col_prefix}_7d'] = df[col_name].shift(336)
+        df[f'{new_col_prefix}_14d'] = df[col_name].shift(672)
+        df[f'{new_col_prefix}_28d'] = df[col_name].shift(1344)
         
     safe_same_cycle_lag('smp_system_price', 'smp_same_cycle')
     safe_same_cycle_lag('load_total_mw', 'load_same_cycle')
+    safe_same_cycle_lag('load_north_mw', 'load_north_same_cycle')
+    safe_same_cycle_lag('load_central_mw', 'load_central_same_cycle')
+    safe_same_cycle_lag('load_south_mw', 'load_south_same_cycle')
     safe_same_cycle_lag('smp_north_price', 'smp_north_same_cycle')
     safe_same_cycle_lag('smp_south_price', 'smp_south_same_cycle')
+    safe_same_cycle_lag('hydro_inflow_m3s', 'hydro_inflow_same_cycle')
+    safe_same_cycle_lag('hydro_total_discharge_m3s', 'hydro_discharge_same_cycle')
+    safe_same_cycle_lag('hydro_water_level_m', 'hydro_level_same_cycle')
 
     # =========================================================
     # 2. MORNING AGGREGATES (Day D 00:00 to 07:30)
@@ -85,8 +94,21 @@ def add_engineered_features(df):
     else:
         df['wind_gen_proxy'] = 0
 
-    if 'load_total_mw' in df.columns and 'solar_gen_proxy' in df.columns:
-        df['residual_load_proxy'] = df['load_same_cycle_1d'] - df['solar_gen_proxy'] - df['wind_gen_proxy']
+    load_forecast_lags = [
+        col for col in (
+            'load_same_cycle_1d',
+            'load_same_cycle_2d',
+            'load_same_cycle_7d',
+            'load_same_cycle_14d',
+        )
+        if col in df.columns
+    ]
+    if load_forecast_lags:
+        df['load_forecast_proxy'] = df[load_forecast_lags].median(axis=1)
+        df['load_forecast_trend'] = df['load_same_cycle_1d'] - df['load_same_cycle_7d']
+
+    if 'load_forecast_proxy' in df.columns and 'solar_gen_proxy' in df.columns:
+        df['residual_load_proxy'] = df['load_forecast_proxy'] - df['solar_gen_proxy'] - df['wind_gen_proxy']
 
     if 'disp_total_installed_mw' in df.columns and 'residual_load_proxy' in df.columns:
         hydro_cap = df['disp_hydro_installed_mw'].fillna(0) if 'disp_hydro_installed_mw' in df.columns else 0
@@ -95,11 +117,11 @@ def add_engineered_features(df):
         thermal_cap = df['disp_total_installed_mw'] - hydro_cap - solar_cap - wind_cap
         df['thermal_margin_proxy'] = thermal_cap - df['residual_load_proxy']
 
-    if 'shortwave_radiation_hcmc' in df.columns and 'load_same_cycle_1d' in df.columns:
-        df['load_to_rad_ratio'] = df['load_same_cycle_1d'] / (df['shortwave_radiation_hcmc'] + 1.0)
+    if 'shortwave_radiation_hcmc' in df.columns and 'load_forecast_proxy' in df.columns:
+        df['load_to_rad_ratio'] = df['load_forecast_proxy'] / (df['shortwave_radiation_hcmc'] + 1.0)
         
-    if 'wind_speed_hcmc' in df.columns and 'load_same_cycle_1d' in df.columns:
-        df['load_to_wind_ratio'] = df['load_same_cycle_1d'] / (df['wind_speed_hcmc'] + 1.0)
+    if 'wind_speed_hcmc' in df.columns and 'load_forecast_proxy' in df.columns:
+        df['load_to_wind_ratio'] = df['load_forecast_proxy'] / (df['wind_speed_hcmc'] + 1.0)
 
     df = df.drop(columns=['smp_north_price', 'smp_central_price', 'smp_south_price'], errors='ignore')
 
@@ -116,24 +138,38 @@ def add_engineered_features(df):
         if 'smp_north_same_cycle_1d' in df.columns and 'smp_south_same_cycle_1d' in df.columns:
             df['smp_spread_ns_1d'] = df['smp_north_same_cycle_1d'] - df['smp_south_same_cycle_1d']
 
-    # Rolling volatility: std of SMP over past 48 cycles (1 day), shifted by 48 for safety
+    # Snapshot statistics are evaluated at 07:30 on Day D and mapped to Day D+1.
+    # They are constant across the 48 target cycles and cannot drift into unavailable
+    # observations later on Day D.
     if 'smp_system_price' in df.columns:
-        df['smp_rolling_std_1d'] = df['smp_system_price'].shift(48).rolling(48, min_periods=24).std()
-        df['smp_rolling_std_7d'] = df['smp_system_price'].shift(48).rolling(336, min_periods=168).std()
-        # Rolling mean for mean-reversion signal
-        df['smp_rolling_mean_7d'] = df['smp_system_price'].shift(48).rolling(336, min_periods=168).mean()
-        # Deviation from 7-day mean (mean reversion signal)
+        rolling = pd.DataFrame(index=df.index)
+        rolling['std_1d'] = df['smp_system_price'].rolling(48, min_periods=24).std()
+        rolling['std_7d'] = df['smp_system_price'].rolling(336, min_periods=168).std()
+        rolling['mean_7d'] = df['smp_system_price'].rolling(336, min_periods=168).mean()
+        cutoff = rolling[cycle_id == 15].copy()
+        cutoff.index = cutoff.index.normalize() + pd.Timedelta(days=1)
+        target_dates = df.index.normalize()
+        df['smp_rolling_std_1d'] = target_dates.map(cutoff['std_1d'].to_dict())
+        df['smp_rolling_std_7d'] = target_dates.map(cutoff['std_7d'].to_dict())
+        df['smp_rolling_mean_7d'] = target_dates.map(cutoff['mean_7d'].to_dict())
         df['smp_dev_from_7d_mean'] = df['smp_same_cycle_1d'] - df['smp_rolling_mean_7d']
 
-    # Weekend/Holiday flag (binary, complements sin/cos encoding)
-    df['is_weekend'] = (df.index.dayofweek >= 5).astype(int)
+    calendar_weekend = pd.Series((df.index.dayofweek >= 5).astype(int), index=df.index)
+    if 'is_weekend' in df.columns:
+        df['is_weekend'] = np.maximum(df['is_weekend'].fillna(0).astype(int), calendar_weekend)
+    else:
+        df['is_weekend'] = calendar_weekend
     
     # 1. Regime Indicator (Post-Covid)
     df['is_post_covid'] = (df.index.year >= 2023).astype(int)
     
     # 2. Vietnam Public Holidays (Hardcoded for 2021-2026)
     solar_holidays = ['01-01', '04-30', '05-01', '09-02']
-    df['is_holiday'] = df.index.strftime('%m-%d').isin(solar_holidays).astype(int)
+    fixed_holidays = pd.Series(df.index.strftime('%m-%d').isin(solar_holidays).astype(int), index=df.index)
+    if 'is_holiday' in df.columns:
+        df['is_holiday'] = np.maximum(df['is_holiday'].fillna(0).astype(int), fixed_holidays)
+    else:
+        df['is_holiday'] = fixed_holidays
     
     # Lunar holidays (Tet & Hung King)
     lunar_holiday_ranges = [
@@ -156,8 +192,13 @@ def add_engineered_features(df):
     if 'temperature_2m_hn' in df.columns:
         df['heat_stress_hn'] = (df['temperature_2m_hn'] - 35).clip(lower=0)
         df['cold_stress_hn'] = (15 - df['temperature_2m_hn']).clip(lower=0)
+    elif 'temperature_hanoi' in df.columns:
+        df['heat_stress_hn'] = (df['temperature_hanoi'] - 35).clip(lower=0)
+        df['cold_stress_hn'] = (15 - df['temperature_hanoi']).clip(lower=0)
     if 'temperature_2m_hcmc' in df.columns:
         df['heat_stress_hcmc'] = (df['temperature_2m_hcmc'] - 35).clip(lower=0)
+    elif 'temperature_hcmc' in df.columns:
+        df['heat_stress_hcmc'] = (df['temperature_hcmc'] - 35).clip(lower=0)
 
 
     # =========================================================
@@ -165,6 +206,7 @@ def add_engineered_features(df):
     # =========================================================
     # Coal/Gas/Oil prices are daily values published after market close.
     # When forecasting D+1, we use prices up to D-1 (shift by 2 days = 96 cycles).
+    df = df.copy()
     for fuel_col in ['coal_proxy_price', 'brent_price', 'gas_proxy_price', 'usd_vnd']:
         if fuel_col in df.columns:
             df[f'{fuel_col}_lag'] = df[fuel_col].shift(96)  # D-1 value (safe)
@@ -185,9 +227,8 @@ def add_engineered_features(df):
         if 'residual_load_proxy' in df.columns:
             df['hydro_stress_proxy'] = df['residual_load_proxy'] / (df['precip_rolling_30d'] + 1)
 
-    for col in df.select_dtypes(include=[np.number]).columns:
-        if df[col].isna().any(): 
-            df[col] = df[col].ffill().bfill()
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
+    df[numeric_cols] = df[numeric_cols].replace([np.inf, -np.inf], np.nan)
         
     print(f"Feature engineering complete. Shape: {df.shape}, NaN count: {df.isna().sum().sum()}")
     return df
