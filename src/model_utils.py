@@ -10,6 +10,7 @@ from sklearn.linear_model import RidgeCV
 from sklearn.model_selection import TimeSeriesSplit
 
 from src.daily_models import CINGLearForecaster, SimilarDayForecaster
+from src.iceemdan_utils import CEEMDANForecaster
 
 
 class StackingEnsemble:
@@ -106,7 +107,14 @@ class StackingEnsemble:
         y = y.loc[X.index]
         days = pd.DatetimeIndex(X.index.normalize().unique()).sort_values()
         day_splitter = TimeSeriesSplit(n_splits=5)
-        model_names = ["lgb", "xgb", "cb", "cing_lear", "similar_day"]
+        model_names = [
+            "lgb",
+            "xgb",
+            "cb",
+            "cing_lear",
+            "similar_day",
+            "ceemdan",
+        ]
         oof_predictions = np.full((len(X), len(model_names)), np.nan, dtype=float)
 
         print("Stage 1 - chronological out-of-fold base forecasts")
@@ -132,6 +140,11 @@ class StackingEnsemble:
             similar_day.fit(X_train, y_train)
             oof_predictions[val_positions, 4] = similar_day.predict(X_val)
 
+            print("    ceemdan decomposition expert")
+            ceemdan = CEEMDANForecaster(n_imfs_max=6, trials=50)
+            ceemdan.fit(X_train, y_train)
+            oof_predictions[val_positions, 5] = ceemdan.predict(X_val)
+
         valid_positions = np.flatnonzero(np.isfinite(oof_predictions).all(axis=1))
         meta_X = oof_predictions[valid_positions]
         meta_y = y.iloc[valid_positions]
@@ -139,7 +152,9 @@ class StackingEnsemble:
             "trees": [0, 1, 2],
             "trees_cing": [0, 1, 2, 3],
             "trees_similar": [0, 1, 2, 4],
-            "all": [0, 1, 2, 3, 4],
+            "trees_ceemdan": [0, 1, 2, 5],
+            "trees_cing_ceemdan": [0, 1, 2, 3, 5],
+            "all": [0, 1, 2, 3, 4, 5],
         }
         selection_cut = int(len(meta_y) * 0.8)
         best_name = None
@@ -149,7 +164,7 @@ class StackingEnsemble:
             candidate.fit(meta_X[:selection_cut, columns], meta_y.iloc[:selection_cut])
             validation_pred = candidate.predict(meta_X[selection_cut:, columns])
             validation_y = meta_y.iloc[selection_cut:].to_numpy()
-            clean = validation_y > 500.0
+            clean = (validation_y > 500.0) & (validation_y < 2500.0)
             score = np.mean(np.abs(validation_y[clean] - validation_pred[clean]))
             self.base_selection_scores_[candidate_name] = float(score)
             if score < best_score:
@@ -179,6 +194,11 @@ class StackingEnsemble:
             self.models["cing_lear"] = CINGLearForecaster().fit(X, y)
         if "similar_day" in self.model_order_:
             self.models["similar_day"] = SimilarDayForecaster(neighbors=21).fit(X, y)
+        if "ceemdan" in self.model_order_:
+            self.models["ceemdan"] = CEEMDANForecaster(
+                n_imfs_max=6,
+                trials=50,
+            ).fit(X, y)
         print(f"Selected base models - {self.model_order_}")
         print("Stacking ensemble training complete")
         return self
