@@ -48,7 +48,10 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
     regime_probability = None
     regime_weight = None
     if hasattr(model, 'models') and 'regime' in model.models:
-        regime_probability, _, _ = model.models['regime'].predict_components(X_test)
+        if hasattr(model, 'predict_gate_probability'):
+            regime_probability = model.predict_gate_probability(X_test)
+        else:
+            regime_probability, _, _ = model.models['regime'].predict_components(X_test)
         regime_weight = model._gate_weight(regime_probability)
         predicted_collapse = regime_weight >= 0.5
     else:
@@ -292,6 +295,28 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
             'gate_ramp': getattr(model, 'gate_ramp_', None),
             'gate_validation_scores': getattr(model, 'gate_validation_scores_', {}),
             'shape_guard_enabled': getattr(model, 'shape_guard_enabled_', False),
+            'state_projection_enabled': getattr(
+                model,
+                'state_projection_enabled_',
+                False,
+            ),
+            'lower_projection_cut': getattr(
+                model,
+                'lower_projection_cut_',
+                None,
+            ),
+            'cap_projection_cut': getattr(
+                model,
+                'cap_projection_cut_',
+                None,
+            ),
+            'lower_state_value': getattr(model, 'lower_state_value_', None),
+            'cap_state_value': getattr(model, 'cap_state_value_', None),
+            'state_projection_scores': getattr(
+                model,
+                'state_projection_scores_',
+                {},
+            ),
             'normal_delta_bounds': getattr(
                 model,
                 'normal_delta_bounds_',

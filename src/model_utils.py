@@ -39,9 +39,16 @@ class StackingEnsemble:
         self.gate_threshold_ = 1.1
         self.gate_ramp_ = 0.05
         self.gate_validation_scores_ = {}
+        self.gate_classifier_ = None
         self.normal_delta_bounds_ = np.tile([-550.0, 550.0], (48, 1))
         self.gate_delta_bounds_ = np.tile([-1550.0, 1550.0], (48, 1))
         self.shape_guard_enabled_ = True
+        self.state_projection_enabled_ = False
+        self.lower_projection_cut_ = None
+        self.cap_projection_cut_ = None
+        self.lower_state_value_ = 1000.0
+        self.cap_state_value_ = 1725.2
+        self.state_projection_scores_ = {}
 
     def get_base_models(self):
         return {
@@ -183,6 +190,8 @@ class StackingEnsemble:
             for name, iteration in regime.best_iterations_.items():
                 regime_iteration_history[name].append(iteration)
 
+        self.gate_classifier_ = regime.classifier
+
         for name, history in regime_iteration_history.items():
             if history:
                 self.regime_estimators_[name] = int(np.clip(
@@ -203,9 +212,6 @@ class StackingEnsemble:
             "trees": [0, 1, 2],
             "trees_cing": [0, 1, 2, 3],
             "trees_similar": [0, 1, 2, 4],
-            "trees_regime": [0, 1, 2, 5],
-            "trees_cing_regime": [0, 1, 2, 3, 5],
-            "all": [0, 1, 2, 3, 4, 5],
         }
         meta_values = meta_y.to_numpy(dtype=float)
         meta_cycles = _cycle_values(X.index[valid_positions])
@@ -295,9 +301,21 @@ class StackingEnsemble:
         ))
         raw_mae = np.mean(np.abs(validation_values - gated_validation))
         guarded_mae = np.mean(np.abs(validation_values - guarded_validation))
-        self.shape_guard_enabled_ = (
+        self.shape_guard_enabled_ = bool(
             guarded_clean_mae <= raw_clean_mae + 1.0
             and guarded_mae <= raw_mae + 1.0
+        )
+        projection_base = (
+            guarded_validation
+            if self.shape_guard_enabled_
+            else gated_validation
+        )
+        self._tune_state_projection(
+            validation_values,
+            projection_base,
+            gate_weight,
+            X.index[valid_positions][validation_selection],
+            y,
         )
 
         print("Stage 2 - full-data base models")
@@ -319,6 +337,10 @@ class StackingEnsemble:
             f"ramp {self.gate_ramp_:.2f}"
         )
         print(f"Shape guard enabled - {self.shape_guard_enabled_}")
+        print(
+            f"State projection - enabled {self.state_projection_enabled_} "
+            f"lower {self.lower_projection_cut_} cap {self.cap_projection_cut_}"
+        )
         print("Stacking ensemble training complete")
         return self
 
@@ -347,6 +369,12 @@ class StackingEnsemble:
             self.gate_threshold_,
             self.gate_ramp_,
         )
+
+    def predict_gate_probability(self, X):
+        if self.gate_classifier_ is not None:
+            return self.gate_classifier_.predict_proba(X)[:, 1]
+        probability, _, _ = self.models["regime"].predict_components(X)
+        return probability
 
     def _tune_gate(self, actual, normal_prediction, probability, low_prediction):
         actual = np.asarray(actual, dtype=float)
@@ -392,6 +420,140 @@ class StackingEnsemble:
                     best_overall_mae = overall_mae
                     self.gate_threshold_ = float(threshold)
                     self.gate_ramp_ = float(ramp)
+
+    @staticmethod
+    def _project_states(
+        prediction,
+        gate_weight,
+        lower_cut,
+        cap_cut,
+        lower_value,
+        cap_value,
+    ):
+        result = np.asarray(prediction, dtype=float).copy()
+        normal = np.asarray(gate_weight, dtype=float) < 0.20
+        if lower_cut is not None:
+            result[normal & (result <= lower_cut)] = lower_value
+        if cap_cut is not None:
+            result[normal & (result >= cap_cut)] = cap_value
+        return result
+
+    def _tune_state_projection(
+        self,
+        actual,
+        prediction,
+        gate_weight,
+        index,
+        training_target,
+    ):
+        actual = np.asarray(actual, dtype=float)
+        prediction = np.asarray(prediction, dtype=float)
+        gate_weight = np.asarray(gate_weight, dtype=float)
+        training_values = np.asarray(training_target, dtype=float)
+        lower_values = training_values[
+            (training_values > 500.0) & (training_values < 1200.0)
+        ]
+        cap_values = training_values[training_values >= 1700.0]
+        if len(lower_values) < 100 or len(cap_values) < 100:
+            return
+
+        self.lower_state_value_ = float(np.median(lower_values))
+        self.cap_state_value_ = float(np.median(cap_values))
+        clean = (actual > 500.0) & (actual < 2500.0)
+        base_clean_mae = float(np.mean(np.abs(
+            actual[clean] - prediction[clean]
+        )))
+        base_overall_mae = float(np.mean(np.abs(actual - prediction)))
+        months = pd.PeriodIndex(pd.DatetimeIndex(index), freq="M")
+        unique_months = months.unique()
+        base_month_mae = {
+            month: float(np.mean(np.abs(
+                actual[clean & (months == month)]
+                - prediction[clean & (months == month)]
+            )))
+            for month in unique_months
+            if np.any(clean & (months == month))
+        }
+        self.state_projection_scores_ = {
+            "off": {
+                "clean_mae": base_clean_mae,
+                "overall_mae": base_overall_mae,
+            }
+        }
+        best = None
+        lower_candidates = [None, *np.arange(1150.0, 1451.0, 25.0)]
+        cap_candidates = [None, *np.arange(1450.0, 1701.0, 25.0)]
+        required_months = max(1, int(np.ceil(len(base_month_mae) * 0.60)))
+
+        for lower_cut in lower_candidates:
+            for cap_cut in cap_candidates:
+                if lower_cut is None and cap_cut is None:
+                    continue
+                if (
+                    lower_cut is not None
+                    and cap_cut is not None
+                    and lower_cut >= cap_cut
+                ):
+                    continue
+                projected = self._project_states(
+                    prediction,
+                    gate_weight,
+                    lower_cut,
+                    cap_cut,
+                    self.lower_state_value_,
+                    self.cap_state_value_,
+                )
+                clean_mae = float(np.mean(np.abs(
+                    actual[clean] - projected[clean]
+                )))
+                overall_mae = float(np.mean(np.abs(actual - projected)))
+                improved_months = sum(
+                    float(np.mean(np.abs(
+                        actual[clean & (months == month)]
+                        - projected[clean & (months == month)]
+                    ))) <= month_mae
+                    for month, month_mae in base_month_mae.items()
+                )
+                if (
+                    clean_mae < base_clean_mae
+                    and overall_mae <= base_overall_mae
+                    and improved_months >= required_months
+                    and (best is None or clean_mae < best[0])
+                ):
+                    best = (
+                        clean_mae,
+                        overall_mae,
+                        lower_cut,
+                        cap_cut,
+                        improved_months,
+                    )
+
+        if best is None:
+            return
+        clean_mae, overall_mae, lower_cut, cap_cut, improved_months = best
+        self.state_projection_enabled_ = True
+        self.lower_projection_cut_ = (
+            None if lower_cut is None else float(lower_cut)
+        )
+        self.cap_projection_cut_ = None if cap_cut is None else float(cap_cut)
+        self.state_projection_scores_["selected"] = {
+            "clean_mae": float(clean_mae),
+            "overall_mae": float(overall_mae),
+            "improved_months": int(improved_months),
+            "evaluated_months": int(len(base_month_mae)),
+        }
+
+    def _apply_state_projection(self, prediction, gate_weight):
+        if not self.state_projection_enabled_:
+            return np.asarray(prediction, dtype=float)
+        return self._project_states(
+            prediction,
+            gate_weight,
+            self.lower_projection_cut_,
+            self.cap_projection_cut_,
+            self.lower_state_value_,
+            self.cap_state_value_,
+        )
 
     def _fit_delta_bounds(self, y):
         frame = pd.DataFrame({"target": y.astype(float)})
@@ -463,7 +625,8 @@ class StackingEnsemble:
             self.meta_learner.predict(base_predictions)
             + self.cycle_bias_[cycles]
         )
-        probability, _, low_prediction = self.models["regime"].predict_components(X)
+        probability = self.predict_gate_probability(X)
+        _, _, low_prediction = self.models["regime"].predict_components(X)
         gate_weight = self._gate_weight(probability)
         result = (
             (1.0 - gate_weight) * normal_prediction
@@ -471,7 +634,7 @@ class StackingEnsemble:
         )
         if self.shape_guard_enabled_:
             result = self._apply_shape_guard(result, gate_weight, X.index)
-        return result
+        return self._apply_state_projection(result, gate_weight)
 
     def save(self, model_name="stacking_ensemble.pkl"):
         os.makedirs(self.output_dir, exist_ok=True)
