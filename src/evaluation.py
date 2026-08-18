@@ -5,6 +5,19 @@ import json
 from sklearn.metrics import mean_squared_error, mean_absolute_error, mean_absolute_percentage_error
 from pathlib import Path
 
+
+def _json_safe(value):
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs"):
     df_clean = df.dropna(subset=['smp_system_price'] + feature_cols).copy()
     test_mask = df_clean.index.year == 2026
@@ -291,4 +304,4 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
             ).tolist(),
         }
         with open(Path(output_dir) / 'model_manifest.json', 'w') as f:
-            json.dump(manifest, f, indent=2)
+            json.dump(_json_safe(manifest), f, indent=2)
