@@ -48,6 +48,7 @@ SCALAR_COLUMNS = (
     "morning_smp_min",
     "morning_smp_first",
     "morning_smp_last",
+    "morning_gate_prob",
     "morning_smp_range",
     "morning_smp_trend",
     "morning_smp_level_change",
@@ -73,6 +74,8 @@ SCALAR_COLUMNS = (
     "smp_rolling_std_1d",
     "smp_rolling_std_7d",
     "smp_rolling_mean_7d",
+    "smp_gate_rate_7d",
+    "smp_gate_rate_30d",
 )
 
 

@@ -9,8 +9,8 @@ from catboost import CatBoostRegressor
 from sklearn.linear_model import RidgeCV
 from sklearn.model_selection import TimeSeriesSplit
 
-from src.cycle_models import CleanCycleResidualForecaster
 from src.daily_models import CINGLearForecaster, SimilarDayForecaster
+from src.regime_models import RegimeForecaster
 
 
 def _cycle_values(index):
@@ -18,56 +18,6 @@ def _cycle_values(index):
         index.hour * 2 + (index.minute == 30).astype(int),
         dtype=int,
     )
-
-
-class CycleRidgeStacker:
-    """Fit a separate regularized blend for each half-hour cycle."""
-
-    def __init__(self):
-        self.models = {}
-        self.alpha_ = np.nan
-        self.coef_ = np.array([], dtype=float)
-        self.cycle_coefficients_ = {}
-
-    @staticmethod
-    def _new_model(sample_count):
-        splits = min(5, max(2, sample_count // 40))
-        return RidgeCV(
-            alphas=np.logspace(-2, 5, 20),
-            scoring="neg_mean_absolute_error",
-            cv=TimeSeriesSplit(n_splits=splits),
-        )
-
-    def fit(self, X, y, cycles):
-        X = np.asarray(X, dtype=float)
-        y = np.asarray(y, dtype=float)
-        cycles = np.asarray(cycles, dtype=int)
-        self.models = {}
-        coefficients = []
-        alphas = []
-        for cycle in range(48):
-            mask = cycles == cycle
-            if mask.sum() < 80:
-                raise ValueError(f"Not enough meta samples for cycle {cycle}")
-            model = self._new_model(int(mask.sum()))
-            model.fit(X[mask], y[mask])
-            self.models[cycle] = model
-            self.cycle_coefficients_[cycle] = model.coef_.tolist()
-            coefficients.append(model.coef_)
-            alphas.append(model.alpha_)
-        self.coef_ = np.mean(np.vstack(coefficients), axis=0)
-        self.alpha_ = float(np.median(alphas))
-        return self
-
-    def predict(self, X, cycles):
-        X = np.asarray(X, dtype=float)
-        cycles = np.asarray(cycles, dtype=int)
-        result = np.empty(len(X), dtype=float)
-        for cycle, model in self.models.items():
-            mask = cycles == cycle
-            if mask.any():
-                result[mask] = model.predict(X[mask])
-        return result
 
 
 class StackingEnsemble:
@@ -81,7 +31,17 @@ class StackingEnsemble:
         self.selected_candidate_ = None
         self.cycle_bias_ = np.zeros(48, dtype=float)
         self.base_selection_scores_ = {}
-        self.cycle_lgb_estimators_ = 1200
+        self.regime_estimators_ = {
+            "classifier": 800,
+            "normal": 800,
+            "low": 800,
+        }
+        self.gate_threshold_ = 1.1
+        self.gate_ramp_ = 0.05
+        self.gate_validation_scores_ = {}
+        self.normal_delta_bounds_ = np.tile([-550.0, 550.0], (48, 1))
+        self.gate_delta_bounds_ = np.tile([-1550.0, 1550.0], (48, 1))
+        self.shape_guard_enabled_ = True
 
     def get_base_models(self):
         return {
@@ -173,10 +133,12 @@ class StackingEnsemble:
             "cb",
             "cing_lear",
             "similar_day",
-            "cycle_lgb",
+            "regime",
         ]
         oof_predictions = np.full((len(X), len(model_names)), np.nan, dtype=float)
-        cycle_iteration_history = []
+        oof_low_probability = np.full(len(X), np.nan, dtype=float)
+        oof_low_prediction = np.full(len(X), np.nan, dtype=float)
+        regime_iteration_history = {name: [] for name in self.regime_estimators_}
 
         print("Stage 1 - chronological out-of-fold base forecasts")
         for fold, (train_day_idx, val_day_idx) in enumerate(day_splitter.split(days), 1):
@@ -201,9 +163,9 @@ class StackingEnsemble:
             similar_day.fit(X_train, y_train)
             oof_predictions[val_positions, 4] = similar_day.predict(X_val)
 
-            print("    clean cycle residual expert")
-            cycle_lgb = CleanCycleResidualForecaster()
-            cycle_lgb.fit(
+            print("    two-regime expert")
+            regime = RegimeForecaster()
+            regime.fit(
                 X_train,
                 y_train,
                 sample_weight=self._recency_weights(X_train.index),
@@ -211,57 +173,64 @@ class StackingEnsemble:
                 y_val=y_val,
                 val_weight=self._recency_weights(X_val.index),
             )
-            oof_predictions[val_positions, 5] = cycle_lgb.predict(X_val)
-            cycle_iteration_history.extend(cycle_lgb.best_iterations_.values())
+            probability, normal_prediction, low_prediction = regime.predict_components(X_val)
+            oof_predictions[val_positions, 5] = (
+                (1.0 - probability) * normal_prediction
+                + probability * low_prediction
+            )
+            oof_low_probability[val_positions] = probability
+            oof_low_prediction[val_positions] = low_prediction
+            for name, iteration in regime.best_iterations_.items():
+                regime_iteration_history[name].append(iteration)
 
-        if cycle_iteration_history:
-            self.cycle_lgb_estimators_ = int(np.clip(
-                np.median(cycle_iteration_history),
-                100,
-                1200,
-            ))
-            print(f"  cycle expert estimators {self.cycle_lgb_estimators_}")
+        for name, history in regime_iteration_history.items():
+            if history:
+                self.regime_estimators_[name] = int(np.clip(
+                    np.median(history),
+                    100,
+                    800,
+                ))
+        print(f"  regime estimators {self.regime_estimators_}")
 
-        valid_positions = np.flatnonzero(np.isfinite(oof_predictions).all(axis=1))
+        valid_positions = np.flatnonzero(
+            np.isfinite(oof_predictions).all(axis=1)
+            & np.isfinite(oof_low_probability)
+            & np.isfinite(oof_low_prediction)
+        )
         meta_X = oof_predictions[valid_positions]
         meta_y = y.iloc[valid_positions]
         candidate_sets = {
-            "trees_global": ([0, 1, 2], "global"),
-            "trees_cycle": ([0, 1, 2], "cycle"),
-            "trees_cing_global": ([0, 1, 2, 3], "global"),
-            "trees_cing_cycle": ([0, 1, 2, 3], "cycle"),
-            "trees_similar": ([0, 1, 2, 4], "cycle"),
-            "trees_cycle_lgb_global": ([0, 1, 2, 5], "global"),
-            "trees_cycle_lgb_cycle": ([0, 1, 2, 5], "cycle"),
-            "trees_cing_cycle_lgb": ([0, 1, 2, 3, 5], "cycle"),
-            "all": ([0, 1, 2, 3, 4, 5], "cycle"),
+            "trees": [0, 1, 2],
+            "trees_cing": [0, 1, 2, 3],
+            "trees_similar": [0, 1, 2, 4],
+            "trees_regime": [0, 1, 2, 5],
+            "trees_cing_regime": [0, 1, 2, 3, 5],
+            "all": [0, 1, 2, 3, 4, 5],
         }
         meta_values = meta_y.to_numpy(dtype=float)
         meta_cycles = _cycle_values(X.index[valid_positions])
         clean_meta = (meta_values > 500.0) & (meta_values < 2500.0)
         selection_cut = int(len(meta_y) * 0.8)
         train_selection = clean_meta & (np.arange(len(meta_y)) < selection_cut)
-        validation_selection = clean_meta & (np.arange(len(meta_y)) >= selection_cut)
+        validation_selection = np.arange(len(meta_y)) >= selection_cut
+        clean_validation = clean_meta[validation_selection]
         best_name = None
         best_score = np.inf
         best_validation_pred = None
-        for candidate_name, (columns, meta_kind) in candidate_sets.items():
-            candidate = self._new_meta_learner(meta_kind)
-            self._fit_meta(
-                candidate,
-                meta_kind,
+        for candidate_name, columns in candidate_sets.items():
+            candidate = self._new_meta_learner()
+            candidate.fit(
                 meta_X[train_selection][:, columns],
                 meta_values[train_selection],
-                meta_cycles[train_selection],
             )
-            validation_pred = self._predict_meta(
-                candidate,
-                meta_kind,
-                meta_X[validation_selection][:, columns],
-                meta_cycles[validation_selection],
+            validation_pred = candidate.predict(
+                meta_X[validation_selection][:, columns]
             )
             validation_y = meta_values[validation_selection]
-            score = np.mean(np.abs(validation_y - validation_pred))
+            score = np.mean(np.abs(
+                validation_y[clean_validation]
+                - validation_pred[clean_validation]
+            ))
             self.base_selection_scores_[candidate_name] = float(score)
             print(f"  candidate {candidate_name} clean mae {score:.3f}")
             if score < best_score:
@@ -269,29 +238,67 @@ class StackingEnsemble:
                 best_score = score
                 best_validation_pred = validation_pred
 
-        selected_columns, self.meta_kind_ = candidate_sets[best_name]
+        selected_columns = candidate_sets[best_name]
         self.selected_candidate_ = best_name
         self.model_order_ = [model_names[column] for column in selected_columns]
-        self.meta_learner = self._new_meta_learner(self.meta_kind_)
-        self._fit_meta(
-            self.meta_learner,
-            self.meta_kind_,
+        self.meta_learner = self._new_meta_learner()
+        self.meta_learner.fit(
             meta_X[clean_meta][:, selected_columns],
             meta_values[clean_meta],
-            meta_cycles[clean_meta],
         )
 
         validation_cycles = meta_cycles[validation_selection]
-        validation_residuals = meta_values[validation_selection] - best_validation_pred
+        validation_values = meta_values[validation_selection]
+        validation_residuals = validation_values - best_validation_pred
         for cycle in range(48):
-            local = validation_residuals[validation_cycles == cycle]
+            local_mask = (validation_cycles == cycle) & clean_validation
+            local = validation_residuals[local_mask]
             if len(local):
-                shrinkage = len(local) / (len(local) + 48.0)
+                shrinkage = len(local) / (len(local) + 96.0)
                 self.cycle_bias_[cycle] = np.clip(
                     shrinkage * np.median(local),
-                    -75.0,
-                    75.0,
+                    -40.0,
+                    40.0,
                 )
+
+        normal_validation = best_validation_pred + self.cycle_bias_[validation_cycles]
+        validation_probability = oof_low_probability[valid_positions][validation_selection]
+        validation_low = np.clip(
+            oof_low_prediction[valid_positions][validation_selection],
+            0.0,
+            500.0,
+        )
+        self._tune_gate(
+            validation_values,
+            normal_validation,
+            validation_probability,
+            validation_low,
+        )
+        self._fit_delta_bounds(y)
+        gate_weight = self._gate_weight(validation_probability)
+        gated_validation = (
+            (1.0 - gate_weight) * normal_validation
+            + gate_weight * validation_low
+        )
+        guarded_validation = self._apply_shape_guard(
+            gated_validation,
+            gate_weight,
+            X.index[valid_positions][validation_selection],
+        )
+        raw_clean_mae = np.mean(np.abs(
+            validation_values[clean_validation]
+            - gated_validation[clean_validation]
+        ))
+        guarded_clean_mae = np.mean(np.abs(
+            validation_values[clean_validation]
+            - guarded_validation[clean_validation]
+        ))
+        raw_mae = np.mean(np.abs(validation_values - gated_validation))
+        guarded_mae = np.mean(np.abs(validation_values - guarded_validation))
+        self.shape_guard_enabled_ = (
+            guarded_clean_mae <= raw_clean_mae + 1.0
+            and guarded_mae <= raw_mae + 1.0
+        )
 
         print("Stage 2 - full-data base models")
         for name in ("lgb", "xgb", "cb"):
@@ -302,23 +309,21 @@ class StackingEnsemble:
             self.models["cing_lear"] = CINGLearForecaster().fit(X, y)
         if "similar_day" in self.model_order_:
             self.models["similar_day"] = SimilarDayForecaster(neighbors=21).fit(X, y)
-        if "cycle_lgb" in self.model_order_:
-            self.models["cycle_lgb"] = CleanCycleResidualForecaster(
-                n_estimators=self.cycle_lgb_estimators_,
-            ).fit(
-                X,
-                y,
-                sample_weight=self._recency_weights(X.index),
-            )
+        self.models["regime"] = RegimeForecaster(
+            n_estimators=self.regime_estimators_,
+        ).fit(X, y, sample_weight=self._recency_weights(X.index))
         print(f"Selected base models - {self.model_order_}")
         print(f"Selected meta model - {self.meta_kind_}")
+        print(
+            f"Selected collapse gate - threshold {self.gate_threshold_:.2f} "
+            f"ramp {self.gate_ramp_:.2f}"
+        )
+        print(f"Shape guard enabled - {self.shape_guard_enabled_}")
         print("Stacking ensemble training complete")
         return self
 
     @staticmethod
-    def _new_meta_learner(kind="global"):
-        if kind == "cycle":
-            return CycleRidgeStacker()
+    def _new_meta_learner():
         return RidgeCV(
             alphas=np.logspace(-2, 5, 20),
             scoring="neg_mean_absolute_error",
@@ -326,28 +331,147 @@ class StackingEnsemble:
         )
 
     @staticmethod
-    def _fit_meta(model, kind, X, y, cycles):
-        if kind == "cycle":
-            return model.fit(X, y, cycles)
-        return model.fit(X, y)
+    def _gate_weight_for(probability, threshold, ramp):
+        probability = np.asarray(probability, dtype=float)
+        if threshold > 1.0:
+            return np.zeros(len(probability), dtype=float)
+        if ramp <= 0.0:
+            return (probability >= threshold).astype(float)
+        lower = threshold - ramp
+        upper = threshold + ramp
+        return np.clip((probability - lower) / (upper - lower), 0.0, 1.0)
 
-    @staticmethod
-    def _predict_meta(model, kind, X, cycles):
-        if kind == "cycle":
-            return model.predict(X, cycles)
-        return model.predict(X)
+    def _gate_weight(self, probability):
+        return self._gate_weight_for(
+            probability,
+            self.gate_threshold_,
+            self.gate_ramp_,
+        )
+
+    def _tune_gate(self, actual, normal_prediction, probability, low_prediction):
+        actual = np.asarray(actual, dtype=float)
+        normal_prediction = np.asarray(normal_prediction, dtype=float)
+        probability = np.asarray(probability, dtype=float)
+        low_prediction = np.asarray(low_prediction, dtype=float)
+        clean = (actual > 500.0) & (actual < 2500.0)
+        low = actual <= 500.0
+        base_clean_mae = np.mean(np.abs(actual[clean] - normal_prediction[clean]))
+        best_overall_mae = np.mean(np.abs(actual - normal_prediction))
+        self.gate_validation_scores_ = {
+            "off": {
+                "clean_mae": float(base_clean_mae),
+                "overall_mae": float(best_overall_mae),
+                "low_mae": float(np.mean(np.abs(
+                    actual[low] - normal_prediction[low]
+                ))),
+            }
+        }
+        self.gate_threshold_ = 1.1
+        self.gate_ramp_ = 0.05
+
+        for threshold in np.arange(0.20, 0.96, 0.05):
+            for ramp in (0.0, 0.05, 0.10):
+                weight = self._gate_weight_for(probability, threshold, ramp)
+                prediction = (
+                    (1.0 - weight) * normal_prediction
+                    + weight * low_prediction
+                )
+                clean_mae = np.mean(np.abs(actual[clean] - prediction[clean]))
+                overall_mae = np.mean(np.abs(actual - prediction))
+                low_mae = np.mean(np.abs(actual[low] - prediction[low]))
+                name = f"t{threshold:.2f}_r{ramp:.2f}"
+                self.gate_validation_scores_[name] = {
+                    "clean_mae": float(clean_mae),
+                    "overall_mae": float(overall_mae),
+                    "low_mae": float(low_mae),
+                }
+                if (
+                    clean_mae <= base_clean_mae + 2.5
+                    and overall_mae < best_overall_mae
+                ):
+                    best_overall_mae = overall_mae
+                    self.gate_threshold_ = float(threshold)
+                    self.gate_ramp_ = float(ramp)
+
+    def _fit_delta_bounds(self, y):
+        frame = pd.DataFrame({"target": y.astype(float)})
+        frame["previous"] = frame["target"].shift(1)
+        frame["delta"] = frame["target"] - frame["previous"]
+        frame["cycle"] = _cycle_values(frame.index)
+        dates = frame.index.normalize()
+        frame["same_day"] = np.r_[False, dates[1:] == dates[:-1]]
+        normal = (
+            frame["same_day"]
+            & (frame["target"] > 500.0)
+            & (frame["previous"] > 500.0)
+        )
+        gate = frame["same_day"] & ~normal
+        global_normal = frame.loc[normal, "delta"].quantile([0.01, 0.99]).to_numpy()
+        global_gate = frame.loc[gate, "delta"].quantile([0.005, 0.995]).to_numpy()
+
+        for cycle in range(48):
+            cycle_mask = frame["cycle"] == cycle
+            normal_delta = frame.loc[normal & cycle_mask, "delta"]
+            gate_delta = frame.loc[gate & cycle_mask, "delta"]
+            normal_bounds = (
+                normal_delta.quantile([0.01, 0.99]).to_numpy()
+                if len(normal_delta) >= 50 else global_normal
+            )
+            gate_bounds = (
+                gate_delta.quantile([0.005, 0.995]).to_numpy()
+                if len(gate_delta) >= 50 else global_gate
+            )
+            self.normal_delta_bounds_[cycle] = [
+                min(float(normal_bounds[0]), -100.0),
+                max(float(normal_bounds[1]), 100.0),
+            ]
+            self.gate_delta_bounds_[cycle] = [
+                min(float(gate_bounds[0]), -500.0),
+                max(float(gate_bounds[1]), 500.0),
+            ]
+
+    def _apply_shape_guard(self, prediction, gate_weight, index):
+        result = np.asarray(prediction, dtype=float).copy()
+        gate_weight = np.asarray(gate_weight, dtype=float)
+        index = pd.DatetimeIndex(index)
+        cycles = _cycle_values(index)
+        dates = index.normalize()
+        for position in range(1, len(result)):
+            if dates[position] != dates[position - 1]:
+                continue
+            gate_transition = (
+                max(gate_weight[position], gate_weight[position - 1]) >= 0.20
+                or abs(gate_weight[position] - gate_weight[position - 1]) >= 0.20
+            )
+            bounds = (
+                self.gate_delta_bounds_[cycles[position]]
+                if gate_transition else self.normal_delta_bounds_[cycles[position]]
+            )
+            delta = result[position] - result[position - 1]
+            result[position] = result[position - 1] + np.clip(
+                delta,
+                bounds[0],
+                bounds[1],
+            )
+        return result
 
     def predict(self, X):
         predictions = [self.models[name].predict(X) for name in self.model_order_]
         base_predictions = np.column_stack(predictions)
         cycles = _cycle_values(X.index)
-        result = self._predict_meta(
-            self.meta_learner,
-            self.meta_kind_,
-            base_predictions,
-            cycles,
+        normal_prediction = (
+            self.meta_learner.predict(base_predictions)
+            + self.cycle_bias_[cycles]
         )
-        return result + self.cycle_bias_[cycles]
+        probability, _, low_prediction = self.models["regime"].predict_components(X)
+        gate_weight = self._gate_weight(probability)
+        result = (
+            (1.0 - gate_weight) * normal_prediction
+            + gate_weight * np.clip(low_prediction, 0.0, 500.0)
+        )
+        if self.shape_guard_enabled_:
+            result = self._apply_shape_guard(result, gate_weight, X.index)
+        return result
 
     def save(self, model_name="stacking_ensemble.pkl"):
         os.makedirs(self.output_dir, exist_ok=True)

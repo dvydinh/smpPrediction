@@ -45,6 +45,11 @@ class FeatureContractTests(unittest.TestCase):
         day = self.features.index.normalize().unique()[35]
         values = self.features.loc[day:day + pd.Timedelta(hours=23, minutes=30), "smp_rolling_std_1d"]
         self.assertEqual(values.nunique(), 1)
+        gate_rate = self.features.loc[
+            day:day + pd.Timedelta(hours=23, minutes=30),
+            "smp_gate_rate_7d",
+        ]
+        self.assertEqual(gate_rate.nunique(), 1)
 
     def test_morning_snapshot_uses_previous_day_cutoff(self):
         day = self.features.index.normalize().unique()[35]
@@ -60,6 +65,10 @@ class FeatureContractTests(unittest.TestCase):
         ]
         target = self.features.loc[day]
         self.assertEqual(target["morning_smp_last"], source_morning.iloc[-1])
+        self.assertEqual(
+            target["morning_gate_prob"],
+            (source_morning <= 500.0).mean(),
+        )
         self.assertEqual(
             target["morning_smp_level_change"],
             source_morning.mean() - previous_morning.mean(),

@@ -30,6 +30,42 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
     full_wmape = 100 * np.sum(np.abs(Y_test - Y_pred)) / full_denom if full_denom > 0 else np.nan
 
     print(f"Overall test metrics - RMSE: {full_rmse:.2f} | MAE: {full_mae:.2f} | WMAPE: {full_wmape:.2f}%")
+
+    collapse_mask = Y_test <= 500.0
+    regime_probability = None
+    regime_weight = None
+    if hasattr(model, 'models') and 'regime' in model.models:
+        regime_probability, _, _ = model.models['regime'].predict_components(X_test)
+        regime_weight = model._gate_weight(regime_probability)
+        predicted_collapse = regime_weight >= 0.5
+    else:
+        predicted_collapse = Y_pred <= 500.0
+    collapse_mae = mean_absolute_error(
+        Y_test[collapse_mask],
+        Y_pred[collapse_mask],
+    ) if collapse_mask.any() else np.nan
+    true_positive = np.sum(collapse_mask & predicted_collapse)
+    collapse_precision = (
+        true_positive / predicted_collapse.sum()
+        if predicted_collapse.sum() else 0.0
+    )
+    collapse_recall = true_positive / collapse_mask.sum() if collapse_mask.sum() else 0.0
+    print(
+        f"Collapse regime - MAE: {collapse_mae:.2f} | "
+        f"Precision: {collapse_precision:.3f} | Recall: {collapse_recall:.3f}"
+    )
+    if output_dir and regime_probability is not None:
+        pd.DataFrame({
+            'actual': Y_test,
+            'predicted': Y_pred,
+            'collapse_probability': regime_probability,
+            'collapse_weight': regime_weight,
+            'actual_collapse': collapse_mask.astype(int),
+            'predicted_collapse': predicted_collapse.astype(int),
+        }, index=df_test.index).to_csv(
+            Path(output_dir) / 'regime_events.csv',
+            index_label='datetime',
+        )
     
     # Clean Metrics (exclude outliers: price <= 500 or >= 2500)
     clean_mask = (Y_test > 500) & (Y_test < 2500)
@@ -219,6 +255,9 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
                 if 'smp_same_cycle_1d' in df_test.columns:
                     f.write(f'Baseline MAE (clean): {baseline_mae:.2f}\n')
                     f.write(f'Baseline WMAPE (clean): {baseline_wmape:.2f}%\n')
+            f.write(f'Collapse MAE: {collapse_mae:.2f}\n')
+            f.write(f'Collapse precision: {collapse_precision:.4f}\n')
+            f.write(f'Collapse recall: {collapse_recall:.4f}\n')
 
         manifest = {
             'selected_feature_count': len(feature_cols),
@@ -235,12 +274,21 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
             },
             'cycle_bias': getattr(model, 'cycle_bias_', np.zeros(48)).tolist(),
             'base_selection_scores': getattr(model, 'base_selection_scores_', {}),
-            'cycle_lgb_estimators': getattr(model, 'cycle_lgb_estimators_', None),
-            'cycle_meta_coefficients': getattr(
-                getattr(model, 'meta_learner', None),
-                'cycle_coefficients_',
-                {},
-            ),
+            'regime_estimators': getattr(model, 'regime_estimators_', {}),
+            'gate_threshold': getattr(model, 'gate_threshold_', None),
+            'gate_ramp': getattr(model, 'gate_ramp_', None),
+            'gate_validation_scores': getattr(model, 'gate_validation_scores_', {}),
+            'shape_guard_enabled': getattr(model, 'shape_guard_enabled_', False),
+            'normal_delta_bounds': getattr(
+                model,
+                'normal_delta_bounds_',
+                np.empty((0, 2)),
+            ).tolist(),
+            'gate_delta_bounds': getattr(
+                model,
+                'gate_delta_bounds_',
+                np.empty((0, 2)),
+            ).tolist(),
         }
         with open(Path(output_dir) / 'model_manifest.json', 'w') as f:
             json.dump(manifest, f, indent=2)

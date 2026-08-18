@@ -64,6 +64,7 @@ def add_engineered_features(df):
         morning_smp_min=('smp_system_price', 'min'),
         morning_smp_first=('smp_system_price', 'first'),
         morning_smp_last=('smp_system_price', 'last'),
+        morning_gate_prob=('smp_system_price', lambda x: (x <= 500.0).mean()),
         morning_load_mean=('load_total_mw', 'mean'),
         morning_load_std=('load_total_mw', 'std'),
         morning_load_max=('load_total_mw', 'max'),
@@ -220,12 +221,17 @@ def add_engineered_features(df):
         rolling['std_1d'] = df['smp_system_price'].rolling(48, min_periods=24).std()
         rolling['std_7d'] = df['smp_system_price'].rolling(336, min_periods=168).std()
         rolling['mean_7d'] = df['smp_system_price'].rolling(336, min_periods=168).mean()
+        gate = (df['smp_system_price'] <= 500.0).astype(float)
+        rolling['gate_rate_7d'] = gate.rolling(336, min_periods=168).mean()
+        rolling['gate_rate_30d'] = gate.rolling(1440, min_periods=720).mean()
         cutoff = rolling[cycle_id == 15].copy()
         cutoff.index = cutoff.index.normalize() + pd.Timedelta(days=1)
         target_dates = df.index.normalize()
         df['smp_rolling_std_1d'] = target_dates.map(cutoff['std_1d'].to_dict())
         df['smp_rolling_std_7d'] = target_dates.map(cutoff['std_7d'].to_dict())
         df['smp_rolling_mean_7d'] = target_dates.map(cutoff['mean_7d'].to_dict())
+        df['smp_gate_rate_7d'] = target_dates.map(cutoff['gate_rate_7d'].to_dict())
+        df['smp_gate_rate_30d'] = target_dates.map(cutoff['gate_rate_30d'].to_dict())
         df['smp_dev_from_7d_mean'] = df['smp_same_cycle_1d'] - df['smp_rolling_mean_7d']
 
     calendar_weekend = pd.Series((df.index.dayofweek >= 5).astype(int), index=df.index)
