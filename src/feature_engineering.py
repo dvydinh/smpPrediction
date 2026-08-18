@@ -55,15 +55,60 @@ def add_engineered_features(df):
     df['date_str'] = df.index.date.astype(str)
     
     morning_mask = (cycle_id <= 15)
-    morning_stats = df[morning_mask].groupby('date_str').agg(
+    morning = df[morning_mask]
+    morning_stats = morning.groupby('date_str').agg(
         morning_smp_mean=('smp_system_price', 'mean'),
+        morning_smp_median=('smp_system_price', 'median'),
+        morning_smp_std=('smp_system_price', 'std'),
         morning_smp_max=('smp_system_price', 'max'),
         morning_smp_min=('smp_system_price', 'min'),
-        morning_load_mean=('load_total_mw', 'mean')
+        morning_smp_first=('smp_system_price', 'first'),
+        morning_smp_last=('smp_system_price', 'last'),
+        morning_load_mean=('load_total_mw', 'mean'),
+        morning_load_std=('load_total_mw', 'std'),
+        morning_load_max=('load_total_mw', 'max'),
+        morning_load_min=('load_total_mw', 'min'),
+        morning_load_first=('load_total_mw', 'first'),
+        morning_load_last=('load_total_mw', 'last'),
     )
-    # Shift by 1 day because Day D+1 uses Day D's morning stats
-    morning_stats = morning_stats.shift(1)
-    df = df.join(morning_stats, on='date_str')
+    morning_stats['morning_smp_range'] = (
+        morning_stats['morning_smp_max'] - morning_stats['morning_smp_min']
+    )
+    morning_stats['morning_smp_trend'] = (
+        morning_stats['morning_smp_last'] - morning_stats['morning_smp_first']
+    )
+    morning_stats['morning_load_range'] = (
+        morning_stats['morning_load_max'] - morning_stats['morning_load_min']
+    )
+    morning_stats['morning_load_trend'] = (
+        morning_stats['morning_load_last'] - morning_stats['morning_load_first']
+    )
+    if {'smp_north_price', 'smp_south_price'}.issubset(morning.columns):
+        regional = morning.groupby('date_str').agg(
+            morning_smp_north_mean=('smp_north_price', 'mean'),
+            morning_smp_south_mean=('smp_south_price', 'mean'),
+            morning_smp_north_last=('smp_north_price', 'last'),
+            morning_smp_south_last=('smp_south_price', 'last'),
+        )
+        regional['morning_spread_ns_mean'] = (
+            regional['morning_smp_north_mean'] - regional['morning_smp_south_mean']
+        )
+        regional['morning_spread_ns_last'] = (
+            regional['morning_smp_north_last'] - regional['morning_smp_south_last']
+        )
+        morning_stats = morning_stats.join(regional)
+
+    # Day D+1 uses the complete morning snapshot from Day D. Changes are
+    # measured against Day D-1 and broadcast to all 48 target cycles.
+    origin_morning = morning_stats.shift(1)
+    previous_morning = morning_stats.shift(2)
+    origin_morning['morning_smp_level_change'] = (
+        origin_morning['morning_smp_mean'] - previous_morning['morning_smp_mean']
+    )
+    origin_morning['morning_load_level_change'] = (
+        origin_morning['morning_load_mean'] - previous_morning['morning_load_mean']
+    )
+    df = df.join(origin_morning, on='date_str')
 
     # =========================================================
     # 3. FULL DAY AGGREGATES (Day D-1)
@@ -132,11 +177,40 @@ def add_engineered_features(df):
     if 'smp_same_cycle_1d' in df.columns:
         # Price momentum: how much did the price change vs 2 days ago?
         df['smp_momentum_1d_2d'] = df['smp_same_cycle_1d'] - df['smp_same_cycle_2d']
-        
+        weekly_price_lags = [
+            col for col in (
+                'smp_same_cycle_7d',
+                'smp_same_cycle_14d',
+                'smp_same_cycle_28d',
+            )
+            if col in df.columns
+        ]
+        if weekly_price_lags:
+            df['smp_weekly_median'] = df[weekly_price_lags].median(axis=1)
+            df['smp_level_vs_weekly'] = (
+                df['smp_same_cycle_2d'] - df['smp_weekly_median']
+            )
 
-        # Price spread North-South (using lagged values, already blindspot-safe)
-        if 'smp_north_same_cycle_1d' in df.columns and 'smp_south_same_cycle_1d' in df.columns:
-            df['smp_spread_ns_1d'] = df['smp_north_same_cycle_1d'] - df['smp_south_same_cycle_1d']
+    if {'load_same_cycle_1d', 'load_same_cycle_2d'}.issubset(df.columns):
+        df['load_momentum_1d_2d'] = (
+            df['load_same_cycle_1d'] - df['load_same_cycle_2d']
+        )
+        weekly_load_lags = [
+            col for col in (
+                'load_same_cycle_7d',
+                'load_same_cycle_14d',
+                'load_same_cycle_28d',
+            )
+            if col in df.columns
+        ]
+        if weekly_load_lags:
+            df['load_weekly_median'] = df[weekly_load_lags].median(axis=1)
+            df['load_level_vs_weekly'] = (
+                df['load_same_cycle_2d'] - df['load_weekly_median']
+            )
+    # Price spread North-South using lagged values that are already blindspot-safe.
+    if 'smp_north_same_cycle_1d' in df.columns and 'smp_south_same_cycle_1d' in df.columns:
+        df['smp_spread_ns_1d'] = df['smp_north_same_cycle_1d'] - df['smp_south_same_cycle_1d']
 
     # Snapshot statistics are evaluated at 07:30 on Day D and mapped to Day D+1.
     # They are constant across the 48 target cycles and cannot drift into unavailable

@@ -2,7 +2,16 @@ __pycache__/
 *.py[cod]
 .ipynb_checkpoints/
 
-outputs/
+outputs/*
+!outputs/kaggle_runs/
+outputs/kaggle_runs/*
+!outputs/kaggle_runs/*/
+outputs/kaggle_runs/*/*
+!outputs/kaggle_runs/*/*.png
+!outputs/kaggle_runs/*/*.txt
+!outputs/kaggle_runs/*/*.json
+!outputs/kaggle_runs/*/*.csv
+outputs/kaggle_runs/*/models/
 models/
 data/
 docref/

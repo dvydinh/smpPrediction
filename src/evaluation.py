@@ -130,6 +130,26 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
         df_eval['abs_error'] = np.abs(df_eval['actual'] - df_eval['pred'])
         mae_by_cycle = df_eval.groupby('cycle')['abs_error'].mean()
 
+        cycle_rows = []
+        for cycle, group in df_eval.groupby('cycle'):
+            group_clean = group[(group['actual'] > 500.0) & (group['actual'] < 2500.0)]
+            clean_denom = np.abs(group_clean['actual']).sum()
+            cycle_rows.append({
+                'cycle': int(cycle),
+                'samples': int(len(group)),
+                'mae': float(group['abs_error'].mean()),
+                'clean_samples': int(len(group_clean)),
+                'clean_mae': float(group_clean['abs_error'].mean()),
+                'clean_wmape': float(
+                    100.0 * group_clean['abs_error'].sum() / clean_denom
+                    if clean_denom > 0 else np.nan
+                ),
+            })
+        pd.DataFrame(cycle_rows).to_csv(
+            Path(output_dir) / 'metrics_by_cycle.csv',
+            index=False,
+        )
+
         plt.figure(figsize=(14, 5))
         colors = ['#e74c3c' if c > 15 else '#3498db' for c in mae_by_cycle.index]
         plt.bar(mae_by_cycle.index, mae_by_cycle.values, color=colors, edgecolor='white')
@@ -143,11 +163,31 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
         plt.close()
         
         # 6. Monthly Charts (For every month in test set)
+        monthly_rows = []
         for (year, month), group in df_test.groupby([df_test.index.year, df_test.index.month]):
             m_mae = mean_absolute_error(group['smp_system_price'], group['pred'])
             m_rmse = np.sqrt(mean_squared_error(group['smp_system_price'], group['pred']))
             m_denom = np.abs(group['smp_system_price']).sum()
             m_wmape = 100 * np.sum(np.abs(group['smp_system_price'] - group['pred'])) / m_denom if m_denom > 0 else np.nan
+            group_clean = group[
+                (group['smp_system_price'] > 500.0)
+                & (group['smp_system_price'] < 2500.0)
+            ]
+            clean_error = np.abs(group_clean['smp_system_price'] - group_clean['pred'])
+            clean_denom = np.abs(group_clean['smp_system_price']).sum()
+            monthly_rows.append({
+                'year': int(year),
+                'month': int(month),
+                'samples': int(len(group)),
+                'mae': float(m_mae),
+                'wmape': float(m_wmape),
+                'clean_samples': int(len(group_clean)),
+                'clean_mae': float(clean_error.mean()),
+                'clean_wmape': float(
+                    100.0 * clean_error.sum() / clean_denom
+                    if clean_denom > 0 else np.nan
+                ),
+            })
             
             plt.figure(figsize=(18, 6))
             plt.plot(group.index, group['smp_system_price'], label='Actual SMP', color='#2c3e50')
@@ -159,6 +199,10 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
             plt.tight_layout()
             plt.savefig(Path(output_dir) / f'forecast_{year}_{month:02d}.png', dpi=300)
             plt.close()
+        pd.DataFrame(monthly_rows).to_csv(
+            Path(output_dir) / 'metrics_by_month.csv',
+            index=False,
+        )
 
         # 6. Write metrics summary
         with open(Path(output_dir) / 'metrics.txt', 'w') as f:
@@ -179,6 +223,8 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
         manifest = {
             'selected_feature_count': len(feature_cols),
             'base_models': getattr(model, 'model_order_', []),
+            'selected_candidate': getattr(model, 'selected_candidate_', None),
+            'meta_kind': getattr(model, 'meta_kind_', 'global'),
             'meta_alpha': float(getattr(getattr(model, 'meta_learner', None), 'alpha_', np.nan)),
             'meta_coefficients': {
                 name: float(weight)
@@ -189,6 +235,12 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
             },
             'cycle_bias': getattr(model, 'cycle_bias_', np.zeros(48)).tolist(),
             'base_selection_scores': getattr(model, 'base_selection_scores_', {}),
+            'cycle_lgb_estimators': getattr(model, 'cycle_lgb_estimators_', None),
+            'cycle_meta_coefficients': getattr(
+                getattr(model, 'meta_learner', None),
+                'cycle_coefficients_',
+                {},
+            ),
         }
         with open(Path(output_dir) / 'model_manifest.json', 'w') as f:
             json.dump(manifest, f, indent=2)
