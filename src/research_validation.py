@@ -198,8 +198,14 @@ def _new_model(seed):
 
 
 def _recency_weights(index, half_life_days=180.0):
-    age_days = (index.max() - index).total_seconds() / 86400.0
-    return np.power(0.5, age_days / half_life_days)
+    age_days = np.asarray(
+        (index.max() - index).total_seconds() / 86400.0,
+        dtype=float,
+    )
+    return np.asarray(
+        np.power(0.5, age_days / half_life_days),
+        dtype=float,
+    )
 
 
 def _fit_window_models(frame, feature_cols, forecast_start, windows):
