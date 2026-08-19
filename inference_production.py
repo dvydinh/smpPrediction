@@ -1,50 +1,11 @@
-import os
 import numpy as np
 import pandas as pd
-import lightgbm as lgb
 from datetime import datetime, timedelta
-import requests
-import json
 from pathlib import Path
-from src.model_utils import StackingEnsemble
+from src.research_validation import AdaptiveWindowEnsemble
 
 BASE_DIR = Path(__file__).resolve().parent
-MODEL_PATH = BASE_DIR / "models" / "stacking_ensemble.pkl"
-
-
-def fetch_weather_forecast(target_date):
-    print(f"Fetching Open-Meteo API for {target_date.strftime('%Y-%m-%d')}...")
-    locations = {
-        'hanoi': {'lat': 21.0285, 'lon': 105.8542},
-        'danang': {'lat': 16.0678, 'lon': 108.2208},
-        'hcmc': {'lat': 10.8231, 'lon': 106.6297}
-    }
-
-    weather_dict = {}
-    for city, coords in locations.items():
-        url = (
-            f"https://api.open-meteo.com/v1/forecast?"
-            f"latitude={coords['lat']}&longitude={coords['lon']}"
-            f"&hourly=temperature_2m,relative_humidity_2m,cloud_cover,"
-            f"wind_speed_10m,shortwave_radiation,direct_radiation,diffuse_radiation"
-            f"&timezone=Asia%2FBangkok"
-            f"&start_date={target_date.strftime('%Y-%m-%d')}"
-            f"&end_date={target_date.strftime('%Y-%m-%d')}"
-        )
-        response = requests.get(url, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-        hourly_keys = list(data['hourly'].keys())
-        var_names = [
-            'temperature', 'humidity', 'cloud_cover', 'wind_speed',
-            'shortwave_radiation', 'direct_radiation', 'diffuse_radiation'
-        ]
-        for var_idx, var_name in enumerate(var_names):
-            hourly_data = data['hourly'][hourly_keys[var_idx + 1]]
-            half_hourly = np.repeat(hourly_data, 2)
-            weather_dict[f'{var_name}_{city}'] = half_hourly
-
-    return weather_dict
+MODEL_PATH = BASE_DIR / "models" / "adaptive_window.pkl"
 
 
 def predict_day_ahead(target_date_str=None):
@@ -59,9 +20,9 @@ def predict_day_ahead(target_date_str=None):
     print(f"Snapshot: {current_date.strftime('%Y-%m-%d %H:%M')}")
     print(f"Target date: {target_date.strftime('%Y-%m-%d')}")
 
-    print("Loading Stacking Ensemble model...")
+    print("Loading adaptive window model...")
     try:
-        model = StackingEnsemble.load(str(MODEL_PATH))
+        model = AdaptiveWindowEnsemble.load(str(MODEL_PATH))
     except Exception as e:
         print(f"[ERROR] Model not found at {MODEL_PATH}. Train on Kaggle first. Error: {e}")
         return
@@ -83,15 +44,8 @@ def predict_day_ahead(target_date_str=None):
 
     df = df[df.index <= current_date].copy()
 
-    # Fetch weather forecast for target day
-    weather_forecast = fetch_weather_forecast(target_date)
-
     future_dates = [target_date + timedelta(minutes=30 * i) for i in range(48)]
     future_df = pd.DataFrame(index=pd.DatetimeIndex(future_dates, name='datetime'))
-
-    # Fill weather columns from API
-    for col, values in weather_forecast.items():
-        future_df[col] = values[:48]
 
     future_df['smp_system_price'] = np.nan
 
@@ -136,9 +90,25 @@ def predict_day_ahead(target_date_str=None):
     if missing:
         raise RuntimeError(f"Missing production features: {missing}")
 
-    # Predict
+    history_end = current_date.normalize()
+    history_start = history_end - timedelta(days=70)
+    history_frame = full_df[
+        (full_df.index >= history_start)
+        & (full_df.index < history_end)
+        & full_df['smp_system_price'].notna()
+    ].copy()
+    history_X = history_frame[feature_names].replace(
+        [np.inf, -np.inf], np.nan
+    ).astype(float)
+    valid_history = ~history_X.isna().any(axis=1)
+    history_X = history_X[valid_history]
+    history_y = history_frame.loc[
+        history_X.index,
+        'smp_system_price',
+    ].astype(float)
+
     print("Running inference...")
-    y_pred = model.predict(X_48)
+    y_pred = model.predict_with_history(X_48, history_X, history_y)
 
     print("SMP Forecast (VND/kWh)")
     print("-" * 35)

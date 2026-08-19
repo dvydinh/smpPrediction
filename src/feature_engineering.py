@@ -28,14 +28,20 @@ def add_engineered_features(df):
     # If c <= 15 (00:00 to 07:30): Day D cycle `c` IS available. We can use shift(48).
     # If c > 15 (08:00 to 23:30): Day D cycle `c` IS NOT available. We must use Day D-1 cycle `c`, which is shift(96).
     
+    lagged_features = {}
+
     def safe_same_cycle_lag(col_name, new_col_prefix):
         if col_name not in df.columns: return
-        df[f'{new_col_prefix}_1d'] = np.where(cycle_id <= 15, df[col_name].shift(48), df[col_name].shift(96))
-        df[f'{new_col_prefix}_2d'] = df[col_name].shift(96)
-        df[f'{new_col_prefix}_3d'] = df[col_name].shift(144)
-        df[f'{new_col_prefix}_7d'] = df[col_name].shift(336)
-        df[f'{new_col_prefix}_14d'] = df[col_name].shift(672)
-        df[f'{new_col_prefix}_28d'] = df[col_name].shift(1344)
+        lagged_features[f'{new_col_prefix}_1d'] = np.where(
+            cycle_id <= 15,
+            df[col_name].shift(48),
+            df[col_name].shift(96),
+        )
+        lagged_features[f'{new_col_prefix}_2d'] = df[col_name].shift(96)
+        lagged_features[f'{new_col_prefix}_3d'] = df[col_name].shift(144)
+        lagged_features[f'{new_col_prefix}_7d'] = df[col_name].shift(336)
+        lagged_features[f'{new_col_prefix}_14d'] = df[col_name].shift(672)
+        lagged_features[f'{new_col_prefix}_28d'] = df[col_name].shift(1344)
         
     safe_same_cycle_lag('smp_system_price', 'smp_same_cycle')
     safe_same_cycle_lag('load_total_mw', 'load_same_cycle')
@@ -47,6 +53,21 @@ def add_engineered_features(df):
     safe_same_cycle_lag('hydro_inflow_m3s', 'hydro_inflow_same_cycle')
     safe_same_cycle_lag('hydro_total_discharge_m3s', 'hydro_discharge_same_cycle')
     safe_same_cycle_lag('hydro_water_level_m', 'hydro_level_same_cycle')
+
+    weather_prefixes = (
+        'temperature_', 'humidity_', 'cloud_cover_', 'wind_speed_',
+        'shortwave_radiation_', 'direct_radiation_', 'diffuse_radiation_',
+    )
+    raw_columns = list(df.columns)
+    for col in raw_columns:
+        if col.startswith(weather_prefixes):
+            safe_same_cycle_lag(col, f'{col}_same_cycle')
+        elif col.startswith('disp_'):
+            safe_same_cycle_lag(col, f'{col}_same_cycle')
+    df = pd.concat(
+        [df, pd.DataFrame(lagged_features, index=df.index)],
+        axis=1,
+    )
 
     # =========================================================
     # 2. MORNING AGGREGATES (Day D 00:00 to 07:30)
@@ -221,6 +242,15 @@ def add_engineered_features(df):
         rolling['std_1d'] = df['smp_system_price'].rolling(48, min_periods=24).std()
         rolling['std_7d'] = df['smp_system_price'].rolling(336, min_periods=168).std()
         rolling['mean_7d'] = df['smp_system_price'].rolling(336, min_periods=168).mean()
+        rolling['median_28d'] = df['smp_system_price'].rolling(
+            1344, min_periods=336
+        ).median()
+        rolling['q90_28d'] = df['smp_system_price'].rolling(
+            1344, min_periods=336
+        ).quantile(0.90)
+        rolling['q98_28d'] = df['smp_system_price'].rolling(
+            1344, min_periods=336
+        ).quantile(0.98)
         gate = (df['smp_system_price'] <= 500.0).astype(float)
         rolling['gate_rate_7d'] = gate.rolling(336, min_periods=168).mean()
         rolling['gate_rate_30d'] = gate.rolling(1440, min_periods=720).mean()
@@ -230,6 +260,15 @@ def add_engineered_features(df):
         df['smp_rolling_std_1d'] = target_dates.map(cutoff['std_1d'].to_dict())
         df['smp_rolling_std_7d'] = target_dates.map(cutoff['std_7d'].to_dict())
         df['smp_rolling_mean_7d'] = target_dates.map(cutoff['mean_7d'].to_dict())
+        df['smp_rolling_median_28d'] = target_dates.map(
+            cutoff['median_28d'].to_dict()
+        )
+        df['smp_rolling_q90_28d'] = target_dates.map(
+            cutoff['q90_28d'].to_dict()
+        )
+        df['smp_rolling_q98_28d'] = target_dates.map(
+            cutoff['q98_28d'].to_dict()
+        )
         df['smp_gate_rate_7d'] = target_dates.map(cutoff['gate_rate_7d'].to_dict())
         df['smp_gate_rate_30d'] = target_dates.map(cutoff['gate_rate_30d'].to_dict())
         df['smp_dev_from_7d_mean'] = df['smp_same_cycle_1d'] - df['smp_rolling_mean_7d']

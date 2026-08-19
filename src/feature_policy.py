@@ -26,17 +26,50 @@ RAW_REGIONAL_PRICE_COLUMNS = {
     "smp_south_price",
 }
 
+WEATHER_PREFIXES = (
+    "temperature_",
+    "humidity_",
+    "cloud_cover_",
+    "wind_speed_",
+    "shortwave_radiation_",
+    "direct_radiation_",
+    "diffuse_radiation_",
+)
+
+WEATHER_DERIVED_COLUMNS = {
+    "solar_gen_proxy",
+    "wind_gen_proxy",
+    "residual_load_proxy",
+    "thermal_margin_proxy",
+    "load_to_rad_ratio",
+    "load_to_wind_ratio",
+    "heat_stress_hn",
+    "cold_stress_hn",
+    "heat_stress_hcmc",
+    "precip_total",
+    "precip_rolling_7d",
+    "precip_rolling_30d",
+    "hydro_stress_proxy",
+}
+
+
+def _unavailable_at_origin(col):
+    if col in OBSERVED_ONLY_COLUMNS | RAW_REGIONAL_PRICE_COLUMNS | {TARGET_COLUMN, "datetime"}:
+        return True
+    if col in WEATHER_DERIVED_COLUMNS:
+        return True
+    if col.startswith(WEATHER_PREFIXES) and "_same_cycle_" not in col:
+        return True
+    if col.startswith("disp_") and "_same_cycle_" not in col:
+        return True
+    return False
+
 
 def select_production_features(df):
-    """Return numeric features available by 08:00 on the forecast origin day.
-
-    Weather columns are allowed only under the contract that backtests contain the
-    forecast vintage that would have been available at the forecast origin.
-    """
-    blocked = OBSERVED_ONLY_COLUMNS | RAW_REGIONAL_PRICE_COLUMNS | {TARGET_COLUMN, "datetime"}
+    """Return numeric features available by 08:00 on the forecast origin day."""
     features = []
     for col in df.select_dtypes(include="number").columns:
-        if col in blocked:
+        if _unavailable_at_origin(col):
             continue
         if df[col].notna().mean() < 0.95:
             continue
@@ -48,7 +81,7 @@ def select_production_features(df):
 
 
 def validate_production_features(feature_cols):
-    blocked = (OBSERVED_ONLY_COLUMNS | RAW_REGIONAL_PRICE_COLUMNS).intersection(feature_cols)
+    blocked = {col for col in feature_cols if _unavailable_at_origin(col)}
     unsafe_raw_prices = {
         col for col in feature_cols
         if re.fullmatch(r"smp_(system|north|central|south)_price", col)

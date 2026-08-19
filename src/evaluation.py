@@ -30,11 +30,27 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
     X_test = df_test[feature_cols]
     Y_test = df_test['smp_system_price'].values
     
-    Y_pred = np.clip(model.predict(X_test), 0.0, 1778.6)
+    if hasattr(model, 'predict_walk_forward'):
+        history_actual = df.loc[
+            df.index < df_test.index.min(),
+            'smp_system_price',
+        ].dropna()
+        Y_pred = model.predict_walk_forward(
+            X_test,
+            Y_test,
+            history_actual=history_actual,
+        )
+    else:
+        Y_pred = model.predict(X_test)
+    Y_pred = np.clip(Y_pred, 0.0, 1778.6)
     df_test['pred'] = Y_pred
     
     if output_dir:
         Path(output_dir).mkdir(parents=True, exist_ok=True)
+        df_test[['smp_system_price', 'pred']].to_csv(
+            Path(output_dir) / 'predictions_2026.csv',
+            index_label='datetime',
+        )
         
     # Full Metrics
     full_rmse = np.sqrt(mean_squared_error(Y_test, Y_pred))
@@ -279,6 +295,9 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
             'selected_feature_count': len(feature_cols),
             'base_models': getattr(model, 'model_order_', []),
             'selected_candidate': getattr(model, 'selected_candidate_', None),
+            'online_bias_days': getattr(model, 'bias_days_', 0),
+            'online_cap_days': getattr(model, 'cap_days_', 0),
+            'online_cap_ratio': getattr(model, 'cap_ratio_', None),
             'meta_kind': getattr(model, 'meta_kind_', 'global'),
             'meta_alpha': float(getattr(getattr(model, 'meta_learner', None), 'alpha_', np.nan)),
             'meta_coefficients': {

@@ -22,6 +22,8 @@ class FeatureContractTests(unittest.TestCase):
                 "load_north_mw": values + 2000.0,
                 "load_central_mw": values + 3000.0,
                 "load_south_mw": values + 4000.0,
+                "temperature_hanoi": 20.0 + values / 10000.0,
+                "disp_total_installed_mw": 80000.0 + values / 1000.0,
             },
             index=index,
         )
@@ -77,6 +79,27 @@ class FeatureContractTests(unittest.TestCase):
     def test_observed_target_day_columns_are_blocked(self):
         selected = select_production_features(self.features)
         self.assertFalse(set(selected).intersection(OBSERVED_ONLY_COLUMNS))
+        self.assertNotIn("temperature_hanoi", selected)
+        self.assertNotIn("disp_total_installed_mw", selected)
+        self.assertIn("temperature_hanoi_same_cycle_1d", selected)
+        self.assertIn("disp_total_installed_mw_same_cycle_1d", selected)
+
+    def test_changes_after_origin_do_not_change_target_features(self):
+        origin_day = self.raw.index.normalize().unique()[35]
+        target_day = origin_day + pd.Timedelta(days=1)
+        changed = self.raw.copy()
+        unavailable = (
+            (changed.index.normalize() == origin_day)
+            & (changed.index.hour >= 8)
+        )
+        changed.loc[unavailable] += 999999.0
+        changed_features = add_engineered_features(changed)
+        selected = select_production_features(self.features)
+        target = self.features.index.normalize() == target_day
+        pd.testing.assert_frame_equal(
+            self.features.loc[target, selected],
+            changed_features.loc[target, selected],
+        )
 
 
 if __name__ == "__main__":

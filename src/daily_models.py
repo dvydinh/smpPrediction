@@ -32,6 +32,17 @@ PROFILE_PREFIXES = (
     "shortwave_radiation_",
 )
 
+WEATHER_PROFILE_COLUMNS = (
+    "temperature_hanoi_same_cycle_1d",
+    "temperature_danang_same_cycle_1d",
+    "temperature_hcmc_same_cycle_1d",
+    "cloud_cover_hanoi_same_cycle_1d",
+    "shortwave_radiation_hanoi_same_cycle_1d",
+    "shortwave_radiation_danang_same_cycle_1d",
+    "shortwave_radiation_hcmc_same_cycle_1d",
+    "wind_speed_hcmc_same_cycle_1d",
+)
+
 SCALAR_COLUMNS = (
     "is_weekend",
     "is_workday",
@@ -74,6 +85,9 @@ SCALAR_COLUMNS = (
     "smp_rolling_std_1d",
     "smp_rolling_std_7d",
     "smp_rolling_mean_7d",
+    "smp_rolling_median_28d",
+    "smp_rolling_q90_28d",
+    "smp_rolling_q98_28d",
     "smp_gate_rate_7d",
     "smp_gate_rate_30d",
 )
@@ -92,7 +106,8 @@ class DailyMatrixBuilder:
     def fit(self, X):
         self.profile_columns = [
             col for col in X.columns
-            if col in PROFILE_COLUMNS or col.startswith(PROFILE_PREFIXES)
+            if col in PROFILE_COLUMNS
+            or col in WEATHER_PROFILE_COLUMNS
         ]
         self.scalar_columns = [col for col in SCALAR_COLUMNS if col in X.columns]
         matrix = self._transform(X)
@@ -149,7 +164,7 @@ def _rows_from_daily(predictions, row_index):
 class CINGLearForecaster:
     """Multi-output group-sparse day-ahead model inspired by CING-LEAR."""
 
-    def __init__(self, windows=(365, 730, 1095, None), alphas=(0.0003, 0.001, 0.003)):
+    def __init__(self, windows=(365, None), alphas=(0.001, 0.003)):
         self.windows = windows
         self.alphas = alphas
         self.builder = DailyMatrixBuilder()
@@ -209,8 +224,8 @@ class CINGLearForecaster:
         y_scaled = (y.to_numpy(dtype=float) - y_center) / y_scale
         model = MultiTaskLasso(
             alpha=alpha,
-            max_iter=8000,
-            tol=1e-5,
+            max_iter=1500,
+            tol=1e-4,
             selection="random",
             random_state=42,
         )
