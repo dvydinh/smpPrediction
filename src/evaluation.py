@@ -312,6 +312,11 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
             ),
             'lower_state_value': getattr(model, 'lower_state_value_', None),
             'cap_state_value': getattr(model, 'cap_state_value_', None),
+            'cap_projection_fallback': getattr(
+                model,
+                'cap_projection_fallback_',
+                False,
+            ),
             'state_projection_scores': getattr(
                 model,
                 'state_projection_scores_',
