@@ -295,6 +295,7 @@ def evaluate_and_plot(model, df, feature_cols, output_dir="outputs/kaggle_runs")
             'selected_feature_count': len(feature_cols),
             'base_models': getattr(model, 'model_order_', []),
             'selected_candidate': getattr(model, 'selected_candidate_', None),
+            'regime_enabled': getattr(model, 'regime_enabled_', False),
             'online_bias_days': getattr(model, 'bias_days_', 0),
             'online_cap_days': getattr(model, 'cap_days_', 0),
             'online_cap_ratio': getattr(model, 'cap_ratio_', None),

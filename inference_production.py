@@ -109,19 +109,30 @@ def predict_day_ahead(target_date_str=None):
 
     print("Running inference...")
     y_pred = model.predict_with_history(X_48, history_X, history_y)
+    collapse_probability = (
+        model.predict_gate_probability(X_48)
+        if hasattr(model, "predict_gate_probability")
+        else np.zeros(48, dtype=float)
+    )
+    collapse_threshold = float(getattr(model, "gate_threshold_", 1.1))
 
     print("SMP Forecast (VND/kWh)")
-    print("-" * 35)
-    print("Cycle | Time  | Price")
-    print("-" * 35)
+    print("-" * 58)
+    print("Cycle | Time  | Price       | P(collapse) | Alert")
+    print("-" * 58)
     for cycle in range(48):
         hour = cycle // 2
         minute = "30" if cycle % 2 != 0 else "00"
         time_str = f"{hour:02d}:{minute}"
         price = np.clip(y_pred[cycle], 0.0, 1778.6)
-        print(f" {cycle:02d}    | {time_str} | {price:,.1f} VND")
+        probability = float(collapse_probability[cycle])
+        alert = "YES" if probability >= collapse_threshold else ""
+        print(
+            f" {cycle:02d}    | {time_str} | {price:,.1f} VND "
+            f"| {probability:>10.1%} | {alert}"
+        )
 
-    print("-" * 35)
+    print("-" * 58)
     print("Inference complete. Ready for dispatch.")
 
 

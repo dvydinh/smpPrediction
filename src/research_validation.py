@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from src.daily_models import CINGLearForecaster
+from src.regime_models import RegimeForecaster
 from src.online_calibration import (
     PRICE_LOWER,
     PRICE_UPPER,
@@ -43,7 +44,8 @@ class AdaptiveWindowEnsemble:
         cap_days=0,
         cap_ratio=None,
     ):
-        self.selected_candidate_ = selected_candidate
+        self.regime_enabled_ = selected_candidate.startswith("collapse_")
+        self.selected_candidate_ = selected_candidate.removeprefix("collapse_")
         self.windows = tuple(int(value) for value in windows)
         self.bias_days_ = int(bias_days)
         self.cap_days_ = int(cap_days)
@@ -51,6 +53,10 @@ class AdaptiveWindowEnsemble:
         self.models = {}
         self.model_order_ = []
         self.selected_features = []
+        self.gate_threshold_ = 1.1
+        self.gate_ramp_ = 0.0
+        self.gate_validation_scores_ = {}
+        self.regime_estimators_ = {}
 
     def fit(self, X, y):
         frame = X.copy().sort_index()
@@ -71,6 +77,27 @@ class AdaptiveWindowEnsemble:
             multitask = CINGLearForecaster()
             multitask.fit(frame[self.selected_features], frame["smp_system_price"])
             self.models["cing_lear"] = multitask
+
+        try:
+            regime = RegimeForecaster(
+                n_estimators=500,
+                fit_normal=False,
+            ).fit_calibrated(
+                frame[self.selected_features],
+                frame["smp_system_price"],
+                sample_weight=_recency_weights(frame.index),
+            )
+            self.models["regime"] = regime
+            self.gate_threshold_ = regime.gate_threshold_
+            self.gate_ramp_ = regime.gate_ramp_
+            self.gate_validation_scores_ = regime.gate_validation_scores_
+            self.regime_estimators_ = dict(regime.n_estimators)
+            print(
+                f"Collapse gate threshold {self.gate_threshold_:.3f} "
+                f"enabled {self.regime_enabled_}"
+            )
+        except ValueError as error:
+            print(f"Collapse expert skipped - {error}")
         return self
 
     def _lgb_predictions(self, X):
@@ -96,8 +123,29 @@ class AdaptiveWindowEnsemble:
             return np.median(np.column_stack([median, multitask]), axis=1)
         raise ValueError(f"Unknown adaptive candidate {self.selected_candidate_}")
 
+    def predict_gate_probability(self, X):
+        if "regime" not in self.models:
+            return np.zeros(len(X), dtype=float)
+        probability, _, _ = self.models["regime"].predict_components(X)
+        return probability
+
+    def _gate_weight(self, probability):
+        if "regime" not in self.models:
+            return np.zeros(len(probability), dtype=float)
+        return self.models["regime"].gate_weight(probability)
+
+    def _apply_regime(self, prediction, X):
+        if not self.regime_enabled_ or "regime" not in self.models:
+            return np.asarray(prediction, dtype=float)
+        probability, _, low_prediction = self.models["regime"].predict_components(X)
+        return self.models["regime"].apply_gate(
+            prediction,
+            probability,
+            low_prediction,
+        )
+
     def predict(self, X):
-        return self._base_prediction(X)
+        return self._apply_regime(self._base_prediction(X), X)
 
     def predict_walk_forward(self, X, actual, history_actual=None):
         lgb_predictions = self._lgb_predictions(X)
@@ -110,7 +158,7 @@ class AdaptiveWindowEnsemble:
             )
         else:
             base = self._base_prediction(X, lgb_predictions)
-        return apply_online_adjustment(
+        adjusted = apply_online_adjustment(
             base,
             X.index,
             actual,
@@ -119,6 +167,7 @@ class AdaptiveWindowEnsemble:
             cap_days=self.cap_days_,
             cap_ratio=self.cap_ratio_,
         )
+        return self._apply_regime(adjusted, X)
 
     def predict_with_history(self, X, history_X, history_y):
         lgb_target = self._lgb_predictions(X)
@@ -154,7 +203,9 @@ class AdaptiveWindowEnsemble:
             base_target = self._base_prediction(X, lgb_target)
             base_history = self._base_prediction(history_X, lgb_history)
 
-        return apply_single_day_adjustment(
+        if self.regime_enabled_:
+            base_history = self._apply_regime(base_history, history_X)
+        adjusted = apply_single_day_adjustment(
             base_target,
             X.index,
             history_y,
@@ -163,6 +214,7 @@ class AdaptiveWindowEnsemble:
             cap_days=self.cap_days_,
             cap_ratio=self.cap_ratio_,
         )
+        return self._apply_regime(adjusted, X)
 
     def save(self, output_dir, model_name="adaptive_window.pkl"):
         os.makedirs(output_dir, exist_ok=True)
@@ -273,6 +325,31 @@ def _pretest_base_predictions(history, year_frame, feature_cols, windows):
         )
     except ValueError as error:
         print(f"CING-LEAR skipped for {forecast_start.year} - {error}")
+
+    try:
+        regime = RegimeForecaster(
+            n_estimators=500,
+            fit_normal=False,
+        ).fit_calibrated(
+            history[feature_cols],
+            history["smp_system_price"],
+            sample_weight=_recency_weights(history.index),
+        )
+        probability, _, low_prediction = regime.predict_components(
+            year_frame[feature_cols]
+        )
+        for name, base_prediction in list(predictions.items()):
+            predictions[f"collapse_{name}"] = regime.apply_gate(
+                base_prediction,
+                probability,
+                low_prediction,
+            )
+        print(
+            f"Pretest {forecast_start.year} collapse threshold "
+            f"{regime.gate_threshold_:.3f}"
+        )
+    except ValueError as error:
+        print(f"Collapse expert skipped for {forecast_start.year} - {error}")
     return predictions
 
 
@@ -341,11 +418,13 @@ def run_pretest_validation(
         print(
             f"Pretest {year} best {best['candidate']} - "
             f"clean MAE {best['clean_mae']:.2f} "
-            f"WMAPE {best['clean_wmape']:.2f}%"
+            f"WMAPE {best['clean_wmape']:.2f}% "
+            f"collapse recall {best['collapse_recall']:.3f}"
         )
 
     metrics_frame = pd.DataFrame(rows)
     candidate_scores = {}
+    candidate_overall_scores = {}
     for name, values in metrics_frame.groupby("candidate"):
         if len(values) != len(years):
             continue
@@ -354,8 +433,20 @@ def run_pretest_validation(
             values["clean_wmape"].to_numpy() / 10.0,
         )
         candidate_scores[name] = float(target_ratio.max())
+        candidate_overall_scores[name] = float(values["wmape"].max())
 
-    selected = min(candidate_scores, key=candidate_scores.get)
+    best_target_ratio = min(candidate_scores.values())
+    near_best = [
+        name for name, score in candidate_scores.items()
+        if score <= best_target_ratio + 0.01
+    ]
+    selected = min(
+        near_best,
+        key=lambda name: (
+            candidate_overall_scores[name],
+            candidate_scores[name],
+        ),
+    )
     selected_rows = metrics_frame[metrics_frame["candidate"] == selected]
     target_met = bool(
         (selected_rows["clean_mae"] < 150.0).all()
@@ -367,11 +458,16 @@ def run_pretest_validation(
         "selected_candidate": selected,
         **_parse_candidate(selected),
         "worst_target_ratio": candidate_scores[selected],
+        "worst_overall_wmape": candidate_overall_scores[selected],
+        "minimum_collapse_recall": float(
+            selected_rows["collapse_recall"].min()
+        ),
         "target_met": target_met,
     }
     print(
         f"Pretest selected {selected} - target met {target_met} "
-        f"worst ratio {candidate_scores[selected]:.3f}"
+        f"worst ratio {candidate_scores[selected]:.3f} "
+        f"collapse recall {selected_rows['collapse_recall'].min():.3f}"
     )
 
     if output_dir:

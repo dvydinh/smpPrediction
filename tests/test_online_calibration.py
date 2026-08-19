@@ -6,10 +6,21 @@ import pandas as pd
 from src.online_calibration import (
     apply_online_adjustment,
     apply_single_day_adjustment,
+    target_metrics,
 )
 
 
 class OnlineCalibrationTests(unittest.TestCase):
+    def test_target_metrics_report_collapse_performance(self):
+        metrics = target_metrics(
+            np.array([0.0, 1000.0, 2000.0]),
+            np.array([100.0, 900.0, 2000.0]),
+        )
+        self.assertEqual(metrics["collapse_samples"], 1)
+        self.assertEqual(metrics["collapse_precision"], 1.0)
+        self.assertEqual(metrics["collapse_recall"], 1.0)
+        self.assertEqual(metrics["collapse_mae"], 100.0)
+
     def test_future_actual_does_not_change_earlier_forecasts(self):
         index = pd.date_range("2025-01-01", periods=48 * 10, freq="30min")
         base = np.full(len(index), 1000.0)

@@ -19,6 +19,11 @@ def target_metrics(actual, prediction):
     error = np.abs(actual - prediction)
     valid = clean_mask(actual)
     clean_error = error[valid]
+    collapse = actual <= CLEAN_LOWER
+    predicted_collapse = prediction <= CLEAN_LOWER
+    true_positive = int(np.sum(collapse & predicted_collapse))
+    predicted_events = int(predicted_collapse.sum())
+    actual_events = int(collapse.sum())
     denominator = np.abs(actual).sum()
     clean_denominator = np.abs(actual[valid]).sum()
     return {
@@ -29,6 +34,14 @@ def target_metrics(actual, prediction):
         "clean_mae": float(clean_error.mean()),
         "clean_wmape": float(
             100.0 * clean_error.sum() / clean_denominator
+        ),
+        "collapse_samples": actual_events,
+        "collapse_mae": float(error[collapse].mean()) if actual_events else np.nan,
+        "collapse_precision": float(
+            true_positive / predicted_events if predicted_events else 0.0
+        ),
+        "collapse_recall": float(
+            true_positive / actual_events if actual_events else 0.0
         ),
     }
 
