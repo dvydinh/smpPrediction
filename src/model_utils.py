@@ -48,7 +48,6 @@ class StackingEnsemble:
         self.cap_projection_cut_ = None
         self.lower_state_value_ = 1000.0
         self.cap_state_value_ = 1725.2
-        self.cap_projection_fallback_ = False
         self.state_projection_scores_ = {}
 
     def get_base_models(self):
@@ -530,43 +529,8 @@ class StackingEnsemble:
                     )
 
         if best is None:
-            clean_mae = base_clean_mae
-            overall_mae = base_overall_mae
-            lower_cut = None
-            cap_cut = None
-            improved_months = 0
-        else:
-            clean_mae, overall_mae, lower_cut, cap_cut, improved_months = best
-
-        cap_tolerance = max(5.0, self.cap_state_value_ * 0.005)
-        cap_atom_share = float(np.mean(
-            np.abs(cap_values - self.cap_state_value_) <= cap_tolerance
-        ))
-        if cap_cut is None and cap_atom_share >= 0.50:
-            cap_cut = 0.90 * self.cap_state_value_
-            self.cap_projection_fallback_ = True
-            projected = self._project_states(
-                prediction,
-                gate_weight,
-                lower_cut,
-                cap_cut,
-                self.lower_state_value_,
-                self.cap_state_value_,
-            )
-            clean_mae = float(np.mean(np.abs(
-                actual[clean] - projected[clean]
-            )))
-            overall_mae = float(np.mean(np.abs(actual - projected)))
-            improved_months = sum(
-                float(np.mean(np.abs(
-                    actual[clean & (months == month)]
-                    - projected[clean & (months == month)]
-                ))) <= month_mae
-                for month, month_mae in base_month_mae.items()
-            )
-
-        if lower_cut is None and cap_cut is None:
             return
+        clean_mae, overall_mae, lower_cut, cap_cut, improved_months = best
         self.state_projection_enabled_ = True
         self.lower_projection_cut_ = (
             None if lower_cut is None else float(lower_cut)
@@ -577,8 +541,6 @@ class StackingEnsemble:
             "overall_mae": float(overall_mae),
             "improved_months": int(improved_months),
             "evaluated_months": int(len(base_month_mae)),
-            "cap_fallback": bool(self.cap_projection_fallback_),
-            "cap_atom_share": float(cap_atom_share),
         }
 
     def _apply_state_projection(self, prediction, gate_weight):
